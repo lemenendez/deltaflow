@@ -694,9 +694,11 @@ This prevents flooding the outbox with duplicate pending Deltas for the same Pro
 ```go
 type ProjectionType string
 
+type ProjectionKey map[string]json.RawMessage
+
 type ProjectionIdentity struct {
     Type ProjectionType
-    Key  map[string]any
+    Key  ProjectionKey
 }
 
 type Projection struct {
