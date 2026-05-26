@@ -913,7 +913,7 @@ full customer data
 ---
 
 
-They can be documented later in [FUTURE](FUTURE.md) or [ROADMAP](ROADMAP.md)
+Deferred features and broader roadmap items can be documented later in [FUTURE](FUTURE.md) or [ROADMAP](ROADMAP.md).
 
 ---
 
