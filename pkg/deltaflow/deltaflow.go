@@ -8,9 +8,28 @@ import (
 type ProjectionType string
 type ProjectionOperationType string
 
-// ProjectionKey stores projection identity key components as JSON values so they
-// can be serialized canonically for stable hashing and persistence.
+// ProjectionKey stores projection identity key components as JSON values.
+// Its JSON encoding canonicalizes each embedded value before marshaling so the
+// serialized form is stable for hashing and persistence.
 type ProjectionKey map[string]json.RawMessage
+
+func (k ProjectionKey) MarshalJSON() ([]byte, error) {
+	canonical := make(map[string]any, len(k))
+	for key, raw := range k {
+		if raw == nil {
+			canonical[key] = nil
+			continue
+		}
+
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return nil, err
+		}
+		canonical[key] = value
+	}
+
+	return json.Marshal(canonical)
+}
 
 type ProjectionIdentity struct {
 	Type ProjectionType
