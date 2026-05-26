@@ -913,11 +913,11 @@ full customer data
 ---
 
 
-They can be documented later in `FUTURE.md`.
+They can be documented later in [FUTURE](docs/FUTURE.md) or [ROADMAP](docs/ROADMAP.md)
 
 ---
 
-## 15. Summary
+## 14. Summary
 
 DeltaFlow v0.1 is:
 
