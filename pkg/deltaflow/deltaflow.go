@@ -1,8 +1,11 @@
 package deltaflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 )
 
 type ProjectionType string
@@ -21,8 +24,17 @@ func (k ProjectionKey) MarshalJSON() ([]byte, error) {
 			continue
 		}
 
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+
 		var value any
-		if err := json.Unmarshal(raw, &value); err != nil {
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			if err == nil {
+				return nil, errors.New("invalid JSON: multiple top-level values")
+			}
 			return nil, err
 		}
 		canonical[key] = value
