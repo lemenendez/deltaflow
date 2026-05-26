@@ -1,5 +1,7 @@
 package deltaflow
 
-const (
-	ErrProjectionNotFound = "projection not found"
+import "errors"
+
+var (
+	ErrProjectionNotFound = errors.New("projection not found")
 )
