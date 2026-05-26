@@ -1,6 +1,6 @@
 # Future Ideas
 
-These ideas are future ideas:
+These are future ideas:
 
 ```text
 Multiple targets
