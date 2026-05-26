@@ -913,7 +913,7 @@ full customer data
 ---
 
 
-They can be documented later in [FUTURE](docs/FUTURE.md) or [ROADMAP](docs/ROADMAP.md)
+They can be documented later in [FUTURE](FUTURE.md) or [ROADMAP](ROADMAP.md)
 
 ---
 
