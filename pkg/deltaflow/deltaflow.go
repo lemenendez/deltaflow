@@ -1,13 +1,20 @@
 package deltaflow
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 type ProjectionType string
 type ProjectionOperationType string
 
+// ProjectionKey stores projection identity key components as JSON values so they
+// can be serialized canonically for stable hashing and persistence.
+type ProjectionKey map[string]json.RawMessage
+
 type ProjectionIdentity struct {
 	Type ProjectionType
-	Key  map[string]any
+	Key  ProjectionKey
 }
 
 type Projection struct {
