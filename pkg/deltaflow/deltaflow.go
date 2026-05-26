@@ -47,3 +47,7 @@ type ProjectionApplierFunc func(context.Context, ProjectionOperation) error
 func (f ProjectionApplierFunc) Apply(ctx context.Context, op ProjectionOperation) error {
 	return f(ctx, op)
 }
+
+type Engine interface {
+	Run(ctx context.Context) error
+}
