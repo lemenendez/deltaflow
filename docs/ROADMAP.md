@@ -1,30 +1,29 @@
 v0.1.0   Skeleton + vocabulary + DESIGN.md
 
-v0.2.0   Core domain model + in-memory outbox/jobs
+v0.2.0   Core domain model + in-memory DeltaStore
          - Projection
          - ProjectionType
          - ProjectionKey
          - ProjectionIdentity
-         - Delta / OutboxEntry
-         - SyncJob
+         - Delta
          - Projector
          - ProjectionApplier
          - ProjectionOperation
+         - in-memory DeltaStore
          - in-memory dispatcher
          - in-memory worker FSM tests
 
 v0.3.0   SQL schema + Store contracts
-         - deltaflow_outbox
-         - deltaflow_jobs
-         - OutboxStore interface
-         - JobStore interface
+         - deltaflow_deltas
+         - DeltaStore interface
+         - one table acts as both transactional outbox and worker job queue
          - canonical projection_key hashing
 
-v0.4.0   Postgres OutboxStore + JobStore + leases
-         - dispatch pending outbox rows into jobs
-         - claim jobs with FOR UPDATE SKIP LOCKED
+v0.4.0   Postgres DeltaStore + leases
+         - insert Deltas transactionally with application writes
+         - claim Deltas with FOR UPDATE SKIP LOCKED
          - retry scheduling
-         - dead jobs
+         - dead Deltas
          - integration tests
 
 v0.5.0   latest_state MVP

@@ -6,7 +6,7 @@ type Delta struct {
 	ID                string
 	SyncID            string
 	ProjectionType    ProjectionType
-	ProjectionKey     map[string]any
+	ProjectionKey     ProjectionKey
 	ProjectionKeyHash string
 
 	State        DeltaState
@@ -28,5 +28,3 @@ type Delta struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
-
-

@@ -1,13 +1,17 @@
+package internal
+
 import (
 	"context"
 	"errors"
 	"time"
+
+	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
 type SyncWorker struct {
-	Store     DeltaStore
-	Projector Projector
-	Applier   ProjectionApplier
+	Store     deltaflow.DeltaStore
+	Projector deltaflow.Projector
+	Applier   deltaflow.ProjectionApplier
 
 	WorkerID string
 	LockFor  time.Duration
@@ -23,16 +27,16 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		return nil
 	}
 
-	identity := ProjectionIdentity{
+	identity := deltaflow.ProjectionIdentity{
 		Type: delta.ProjectionType,
 		Key:  delta.ProjectionKey,
 	}
 
 	projection, err := w.Projector.Project(ctx, identity)
 
-	if errors.Is(err, ErrProjectionNotFound) {
-		op := ProjectionOperation{
-			Type:     ProjectionOpDelete,
+	if errors.Is(err, deltaflow.ErrProjectionNotFound) {
+		op := deltaflow.ProjectionOperation{
+			Type:     deltaflow.ProjectionOpDelete,
 			Identity: identity,
 		}
 
@@ -47,8 +51,8 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		return w.failOrRetry(ctx, delta, err)
 	}
 
-	op := ProjectionOperation{
-		Type:       ProjectionOpUpsert,
+	op := deltaflow.ProjectionOperation{
+		Type:       deltaflow.ProjectionOpUpsert,
 		Identity:   identity,
 		Projection: &projection,
 	}
@@ -60,7 +64,7 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	return w.Store.MarkSynced(ctx, delta.ID, false)
 }
 
-func (w *SyncWorker) failOrRetry(ctx context.Context, delta *Delta, err error) error {
+func (w *SyncWorker) failOrRetry(ctx context.Context, delta *deltaflow.Delta, err error) error {
 	nextAttempt := delta.AttemptCount + 1
 
 	if nextAttempt >= delta.MaxAttempts {
