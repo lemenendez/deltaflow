@@ -164,7 +164,8 @@ func claimable(delta *deltaflow.Delta, now time.Time) bool {
 	case deltaflow.StatePending, deltaflow.StateRetrying:
 		return !delta.AvailableAt.After(now)
 	case deltaflow.StateProcessing:
-		return delta.LockedUntil != nil && delta.LockedUntil.After(now)
+		// Re-claim only when the lease expired (or was never set).
+		return delta.LockedUntil == nil || !delta.LockedUntil.After(now)
 	default:
 		return false
 	}
