@@ -586,12 +586,12 @@ SyncWorker
 v0.1 uses one state machine for Deltas.
 
 ```text
-pending
-processing
-synced
-failed
-retrying
-dead
+PENDING
+PROCESSING
+SYNCED
+FAILED
+RETRYING
+DEAD
 ```
 
 Definitions:
