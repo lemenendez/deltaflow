@@ -728,6 +728,16 @@ type ProjectionOperation struct {
 type ProjectionApplier interface {
     Apply(ctx context.Context, op ProjectionOperation) error
 }
+
+type DeltaStore interface {
+    ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*Delta, error)
+
+    MarkSynced(ctx context.Context, deltaID string, ghostDetected bool) error
+
+    MarkRetrying(ctx context.Context, deltaID string, err error, nextRunAt time.Time) error
+
+    MarkDead(ctx context.Context, deltaID string, err error) error
+}
 ```
 
 Function adapters may also be provided:
@@ -755,45 +765,68 @@ This allows users to provide either structs or simple functions.
 Pseudo-code:
 
 ```go
-delta := store.ClaimNext(ctx, workerID)
+delta, err := store.ClaimNext(ctx, workerID, lockFor)
+if err != nil {
+    return err
+}
 
-projection, err := projector.Project(ctx, delta.Identity)
+if delta == nil {
+    return nil
+}
+
+identity := ProjectionIdentity{
+    Type: delta.ProjectionType,
+    Key:  delta.ProjectionKey,
+}
+
+projection, err := projector.Project(ctx, identity)
 
 switch {
 case errors.Is(err, ErrProjectionNotFound):
     op := ProjectionOperation{
         Type:     ProjectionOpDelete,
-        Identity: delta.Identity,
+        Identity: identity,
     }
 
     err = applier.Apply(ctx, op)
     if err != nil {
-        store.MarkFailedOrRetry(ctx, delta, err)
-        return
+        return failOrRetry(ctx, store, delta, err)
     }
 
-    store.MarkSynced(ctx, delta, WithGhostDetected(true))
-    return
+    return store.MarkSynced(ctx, delta.ID, true)
 
 case err != nil:
-    store.MarkFailedOrRetry(ctx, delta, err)
-    return
+    return failOrRetry(ctx, store, delta, err)
 
 default:
     op := ProjectionOperation{
         Type:       ProjectionOpUpsert,
-        Identity:   delta.Identity,
+        Identity:   identity,
         Projection: &projection,
     }
 
     err = applier.Apply(ctx, op)
     if err != nil {
-        store.MarkFailedOrRetry(ctx, delta, err)
-        return
+        return failOrRetry(ctx, store, delta, err)
     }
 
-    store.MarkSynced(ctx, delta)
-    return
+    return store.MarkSynced(ctx, delta.ID, false)
+}
+```
+
+Retry/dead selection belongs in the worker, using the explicit `DeltaStore`
+methods:
+
+```go
+func failOrRetry(ctx context.Context, store DeltaStore, delta *Delta, err error) error {
+    nextAttempt := delta.AttemptCount + 1
+
+    if nextAttempt >= delta.MaxAttempts {
+        return store.MarkDead(ctx, delta.ID, err)
+    }
+
+    nextRunAt := time.Now().UTC().Add(backoff(nextAttempt))
+    return store.MarkRetrying(ctx, delta.ID, err, nextRunAt)
 }
 ```
 
