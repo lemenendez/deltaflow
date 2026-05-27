@@ -10,11 +10,11 @@ import (
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
-func TestMemoryDispatcherDispatchesPendingDelta(t *testing.T) {
+func TestMemoryDeltaStoreInsertsPendingDelta(t *testing.T) {
 	ctx := context.Background()
-	dispatcher := NewMemoryDispatcher(nil)
+	store := NewMemoryDeltaStore()
 
-	inserted, err := dispatcher.Dispatch(ctx, deltaflow.Delta{
+	inserted, err := store.Insert(ctx, deltaflow.Delta{
 		SyncID:         "sync",
 		ProjectionType: "Contact",
 		ProjectionKey: deltaflow.ProjectionKey{
@@ -22,7 +22,7 @@ func TestMemoryDispatcherDispatchesPendingDelta(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("Dispatch returned error: %v", err)
+		t.Fatalf("Insert returned error: %v", err)
 	}
 
 	if inserted.ID == "" {

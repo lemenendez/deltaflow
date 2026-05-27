@@ -10,7 +10,6 @@ v0.2.0   Core domain model + in-memory DeltaStore
          - ProjectionApplier
          - ProjectionOperation
          - in-memory DeltaStore
-         - in-memory dispatcher
          - in-memory worker FSM tests
 
 v0.3.0   SQL schema + Store contracts
