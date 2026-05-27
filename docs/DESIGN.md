@@ -576,7 +576,7 @@ SyncWorker
      if Projection does not exist:
          create delete operation
   7. call ProjectionApplier.Apply(operation)
-  8. mark Delta synced, retrying, failed, or dead
+  8. mark Delta synced, retrying, or dead
 ```
 
 ---
@@ -589,7 +589,6 @@ v0.1 uses one state machine for Deltas.
 PENDING
 PROCESSING
 SYNCED
-FAILED
 RETRYING
 DEAD
 ```
@@ -606,15 +605,16 @@ processing
 synced
   The ProjectionApplier successfully applied the required operation.
 
-failed
-  The last attempt failed, but the Delta may retry.
-
 retrying
-  The Delta is waiting for a future retry.
+  The last attempt failed and the Delta is waiting for a future retry.
 
 dead
   The Delta exhausted retries or was manually marked dead.
 ```
+
+A failed attempt is not a separate stored state in v0.1. The worker records the
+error details and moves the Delta directly to `RETRYING` when another attempt
+is available, or to `DEAD` when retries are exhausted.
 
 No parent/child state model exists in v0.1.
 
