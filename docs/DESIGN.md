@@ -729,6 +729,12 @@ type ProjectionApplier interface {
     Apply(ctx context.Context, op ProjectionOperation) error
 }
 
+var (
+    ErrProjectionNotFound = errors.New("projection not found")
+    ErrDeltaNotFound      = errors.New("delta not found")
+    ErrInvalidLockFor     = errors.New("lock duration must be positive")
+)
+
 type DeltaStore interface {
     ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*Delta, error)
 
@@ -739,6 +745,13 @@ type DeltaStore interface {
     MarkDead(ctx context.Context, deltaID string, err error) error
 }
 ```
+
+`ClaimNext` requires a positive `lockFor` duration. DeltaStore
+implementations should return `ErrInvalidLockFor` without claiming a Delta when
+`lockFor <= 0`.
+
+`MarkSynced`, `MarkRetrying`, and `MarkDead` should return `ErrDeltaNotFound`
+when the requested Delta does not exist.
 
 Function adapters may also be provided:
 

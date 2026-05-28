@@ -133,6 +133,56 @@ func TestMemoryDeltaStoreClaimNextRespectsProcessingLease(t *testing.T) {
 	}
 }
 
+func TestMemoryDeltaStoreClaimNextRejectsNonPositiveLockFor(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		lockFor time.Duration
+	}{
+		{name: "zero", lockFor: 0},
+		{name: "negative", lockFor: -time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewMemoryDeltaStore()
+			inserted, err := store.Insert(ctx, deltaflow.Delta{
+				SyncID:         "sync",
+				ProjectionType: "Contact",
+				ProjectionKey: deltaflow.ProjectionKey{
+					"contact_id": json.RawMessage(`"1"`),
+				},
+			})
+			if err != nil {
+				t.Fatalf("Insert returned error: %v", err)
+			}
+
+			claimed, err := store.ClaimNext(ctx, "worker-1", tt.lockFor)
+			if !errors.Is(err, deltaflow.ErrInvalidLockFor) {
+				t.Fatalf("ClaimNext error = %v, want %v", err, deltaflow.ErrInvalidLockFor)
+			}
+			if claimed != nil {
+				t.Fatalf("ClaimNext returned delta %q, want nil", claimed.ID)
+			}
+
+			got, ok, err := store.Get(ctx, inserted.ID)
+			if err != nil {
+				t.Fatalf("Get returned error: %v", err)
+			}
+			if !ok {
+				t.Fatalf("delta %q not found", inserted.ID)
+			}
+			if got.State != deltaflow.StatePending {
+				t.Fatalf("state = %s, want %s", got.State, deltaflow.StatePending)
+			}
+			if got.LockedBy != nil || got.LockedUntil != nil {
+				t.Fatalf("lock = (%v, %v), want nil lock", got.LockedBy, got.LockedUntil)
+			}
+		})
+	}
+}
+
 func TestMemoryDeltaStoreRejectsDuplicateIDs(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryDeltaStore()

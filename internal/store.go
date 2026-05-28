@@ -11,7 +11,6 @@ import (
 )
 
 var (
-	ErrDeltaNotFound      = errors.New("delta not found")
 	ErrDeltaAlreadyExists = errors.New("delta already exists")
 )
 
@@ -87,6 +86,9 @@ func (s *MemoryDeltaStore) ClaimNext(ctx context.Context, workerID string, lockF
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if lockFor <= 0 {
+		return nil, deltaflow.ErrInvalidLockFor
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -149,7 +151,7 @@ func (s *MemoryDeltaStore) update(ctx context.Context, deltaID string, fn func(*
 
 	delta, ok := s.deltas[deltaID]
 	if !ok {
-		return ErrDeltaNotFound
+		return deltaflow.ErrDeltaNotFound
 	}
 
 	now := s.now()
