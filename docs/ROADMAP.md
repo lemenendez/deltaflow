@@ -3,6 +3,7 @@
 v0.1.0   Skeleton + vocabulary + DESIGN.md
 
 v0.2.0   Core domain model + in-memory DeltaStore
+         - intentionally non-durable in this milestone
          - Projection
          - ProjectionType
          - ProjectionKey
