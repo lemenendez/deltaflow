@@ -576,7 +576,7 @@ SyncWorker
      if Projection does not exist:
          create delete operation
   7. call ProjectionApplier.Apply(operation)
-  8. mark Delta synced, retrying, failed, or dead
+  8. mark Delta synced, retrying, or dead
 ```
 
 ---
@@ -586,12 +586,11 @@ SyncWorker
 v0.1 uses one state machine for Deltas.
 
 ```text
-pending
-processing
-synced
-failed
-retrying
-dead
+PENDING
+PROCESSING
+SYNCED
+RETRYING
+DEAD
 ```
 
 Definitions:
@@ -606,15 +605,16 @@ processing
 synced
   The ProjectionApplier successfully applied the required operation.
 
-failed
-  The last attempt failed, but the Delta may retry.
-
 retrying
-  The Delta is waiting for a future retry.
+  The last attempt failed and the Delta is waiting for a future retry.
 
 dead
   The Delta exhausted retries or was manually marked dead.
 ```
+
+A failed attempt is not a separate stored state in v0.1. The worker records the
+error details and moves the Delta directly to `RETRYING` when another attempt
+is available, or to `DEAD` when retries are exhausted.
 
 No parent/child state model exists in v0.1.
 
@@ -728,7 +728,30 @@ type ProjectionOperation struct {
 type ProjectionApplier interface {
     Apply(ctx context.Context, op ProjectionOperation) error
 }
+
+var (
+    ErrProjectionNotFound = errors.New("projection not found")
+    ErrDeltaNotFound      = errors.New("delta not found")
+    ErrInvalidLockFor     = errors.New("lock duration must be positive")
+)
+
+type DeltaStore interface {
+    ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*Delta, error)
+
+    MarkSynced(ctx context.Context, deltaID string, ghostDetected bool) error
+
+    MarkRetrying(ctx context.Context, deltaID string, err error, nextRunAt time.Time) error
+
+    MarkDead(ctx context.Context, deltaID string, err error) error
+}
 ```
+
+`ClaimNext` requires a positive `lockFor` duration. DeltaStore
+implementations should return `ErrInvalidLockFor` without claiming a Delta when
+`lockFor <= 0`.
+
+`MarkSynced`, `MarkRetrying`, and `MarkDead` should return `ErrDeltaNotFound`
+when the requested Delta does not exist.
 
 Function adapters may also be provided:
 
@@ -755,45 +778,68 @@ This allows users to provide either structs or simple functions.
 Pseudo-code:
 
 ```go
-delta := store.ClaimNext(ctx, workerID)
+delta, err := store.ClaimNext(ctx, workerID, lockFor)
+if err != nil {
+    return err
+}
 
-projection, err := projector.Project(ctx, delta.Identity)
+if delta == nil {
+    return nil
+}
+
+identity := ProjectionIdentity{
+    Type: delta.ProjectionType,
+    Key:  delta.ProjectionKey,
+}
+
+projection, err := projector.Project(ctx, identity)
 
 switch {
 case errors.Is(err, ErrProjectionNotFound):
     op := ProjectionOperation{
         Type:     ProjectionOpDelete,
-        Identity: delta.Identity,
+        Identity: identity,
     }
 
     err = applier.Apply(ctx, op)
     if err != nil {
-        store.MarkFailedOrRetry(ctx, delta, err)
-        return
+        return failOrRetry(ctx, store, delta, err)
     }
 
-    store.MarkSynced(ctx, delta, WithGhostDetected(true))
-    return
+    return store.MarkSynced(ctx, delta.ID, true)
 
 case err != nil:
-    store.MarkFailedOrRetry(ctx, delta, err)
-    return
+    return failOrRetry(ctx, store, delta, err)
 
 default:
     op := ProjectionOperation{
         Type:       ProjectionOpUpsert,
-        Identity:   delta.Identity,
+        Identity:   identity,
         Projection: &projection,
     }
 
     err = applier.Apply(ctx, op)
     if err != nil {
-        store.MarkFailedOrRetry(ctx, delta, err)
-        return
+        return failOrRetry(ctx, store, delta, err)
     }
 
-    store.MarkSynced(ctx, delta)
-    return
+    return store.MarkSynced(ctx, delta.ID, false)
+}
+```
+
+Retry/dead selection belongs in the worker, using the explicit `DeltaStore`
+methods:
+
+```go
+func failOrRetry(ctx context.Context, store DeltaStore, delta *Delta, err error) error {
+    nextAttempt := delta.AttemptCount + 1
+
+    if nextAttempt >= delta.MaxAttempts {
+        return store.MarkDead(ctx, delta.ID, err)
+    }
+
+    nextRunAt := time.Now().UTC().Add(backoff(nextAttempt))
+    return store.MarkRetrying(ctx, delta.ID, err, nextRunAt)
 }
 ```
 

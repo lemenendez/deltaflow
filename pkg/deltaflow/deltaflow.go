@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"time"
 )
 
 type ProjectionType string
@@ -88,4 +89,14 @@ func (f ProjectionApplierFunc) Apply(ctx context.Context, op ProjectionOperation
 
 type Engine interface {
 	Run(ctx context.Context) error
+}
+
+type DeltaStore interface {
+	ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*Delta, error)
+
+	MarkSynced(ctx context.Context, deltaID string, ghostDetected bool) error
+
+	MarkRetrying(ctx context.Context, deltaID string, err error, nextRunAt time.Time) error
+
+	MarkDead(ctx context.Context, deltaID string, err error) error
 }
