@@ -626,68 +626,28 @@ There is no TargetDelivery in v0.2.
 
 ## 7. Database Table
 
-v0.2 starts with one table.
+From v0.3 onward, storage is split into two concerns:
 
-```sql
-CREATE TABLE deltaflow_deltas (
-    id UUID PRIMARY KEY,
+1. outbox table
+2. jobs table
 
-    sync_id TEXT NOT NULL,
+The outbox table records application-side change signals in the same transaction
+as business writes.
 
-    projection_type TEXT NOT NULL,
-    projection_key JSONB NOT NULL,
-    projection_key_hash TEXT NOT NULL,
+The jobs table is worker-facing and tracks claim/lease/retry/dead state for
+execution.
 
-    state TEXT NOT NULL,
+Required behavior:
 
-    attempt_count INT NOT NULL DEFAULT 0,
-    max_attempts INT NOT NULL DEFAULT 5,
-
-    last_error TEXT NULL,
-    last_error_code TEXT NULL,
-
-    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    locked_by TEXT NULL,
-    locked_until TIMESTAMPTZ NULL,
-
-    ghost_detected BOOLEAN NOT NULL DEFAULT false,
-
-    synced_at TIMESTAMPTZ NULL,
-    dead_at TIMESTAMPTZ NULL,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+```text
+- business write + outbox insert are atomic
+- jobs are claimable with lease semantics
+- retries and dead handling are explicit
+- latest-state dedupe is supported by stable projection identity
 ```
 
-Suggested indexes:
-
-```sql
-CREATE INDEX ix_deltaflow_deltas_claim
-ON deltaflow_deltas (state, available_at);
-
-CREATE INDEX ix_deltaflow_deltas_projection
-ON deltaflow_deltas (
-    sync_id,
-    projection_type,
-    projection_key_hash
-);
-```
-
-Optional dedupe index for latest-state compaction:
-
-```sql
-CREATE UNIQUE INDEX ux_deltaflow_pending_delta
-ON deltaflow_deltas (
-    sync_id,
-    projection_type,
-    projection_key_hash
-)
-WHERE state IN ('pending', 'retrying');
-```
-
-This prevents flooding the outbox with duplicate pending Deltas for the same Projection Identity.
+Detailed SQL schema, indexes, and migration shape are intentionally deferred
+until the outbox/jobs split is finalized.
 
 ---
 
