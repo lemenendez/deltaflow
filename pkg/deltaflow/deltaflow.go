@@ -1,48 +1,69 @@
 package deltaflow
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"time"
 )
 
+// OriginOperationType operation done by the origin system that caused the delta to be created.
+// This is used for tracking the source of changes and understanding the context in which a delta was generated.
+type OriginOperationType string
+
+const (
+	OriginOperationInserted     OriginOperationType = "inserted"
+	OriginOperationUpdated      OriginOperationType = "updated"
+	OriginOperationDeleted      OriginOperationType = "deleted"
+	OriginOperationChildChanged OriginOperationType = "child_changed"
+)
+
+// JobOriginType is the origin of the job that created the delta,
+// which can be used for auditing, debugging, and understanding the context of changes.
+// It helps to categorize deltas based on their source, such as whether they were generated from a backfill process, a manual operation, or an outbox event.
+type SyncJobOriginType string
+
+const (
+	JobOriginBackfill SyncJobOriginType = "backfill"
+	JobOriginReplay   SyncJobOriginType = "replay"
+	JobOriginManual   SyncJobOriginType = "manual"
+	JobOriginOutbox   SyncJobOriginType = "outbox"
+	JobOriginUnknown  SyncJobOriginType = "unknown"
+)
+
+// DeltaState represents the current state of a delta in the synchronization process.
+// It indicates where the delta is in its lifecycle, such as whether it's waiting to be processed, currently being handled, or has been marked as ignored due to errors or other conditions.
+type DeltaState string
+
+const (
+	DeltaPending    DeltaState = "pending"
+	DeltaDispatched DeltaState = "dispatched"
+	DeltaIgnored    DeltaState = "ignored"
+)
+
+// JobSyncState represents the current state of a synchronization job, which can encompass multiple deltas. It indicates the overall progress and status of the synchronization process, such as whether it's still pending, actively processing, has completed successfully, is retrying after failures, or has been marked as dead due to unrecoverable errors.
+type JobSyncState string
+
+const (
+	StatePending    JobSyncState = "PENDING"
+	StateProcessing JobSyncState = "PROCESSING"
+	StateSynced     JobSyncState = "SYNCED"
+	StateRetrying   JobSyncState = "RETRYING"
+	StateDead       JobSyncState = "DEAD"
+)
+
+type SyncJobID string
+
+// ProjectionType is the type of projection, used to categorize and identify the kind of projection being handled.
+// examples, Contact, Employee, Order, etc.
 type ProjectionType string
+
+// ProjectionOperationType is the intent operation in the ProjectorApplier.
 type ProjectionOperationType string
 
 // ProjectionKey stores projection identity key components as JSON values.
 // Its JSON encoding canonicalizes each embedded value before marshaling so the
 // serialized form is stable for hashing and persistence.
 type ProjectionKey map[string]json.RawMessage
-
-func (k ProjectionKey) MarshalJSON() ([]byte, error) {
-	canonical := make(map[string]any, len(k))
-	for key, raw := range k {
-		if raw == nil {
-			canonical[key] = nil
-			continue
-		}
-
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.UseNumber()
-
-		var value any
-		if err := decoder.Decode(&value); err != nil {
-			return nil, err
-		}
-		if err := decoder.Decode(new(any)); err != io.EOF {
-			if err == nil {
-				return nil, errors.New("invalid JSON: multiple top-level values")
-			}
-			return nil, err
-		}
-		canonical[key] = value
-	}
-
-	return json.Marshal(canonical)
-}
 
 type ProjectionIdentity struct {
 	Type ProjectionType
@@ -60,6 +81,8 @@ const (
 	ProjectionOpUpsert ProjectionOperationType = "upsert"
 	ProjectionOpDelete ProjectionOperationType = "delete"
 )
+
+type ProjectionKeyHash string
 
 type ProjectionOperation struct {
 	Type       ProjectionOperationType
@@ -92,11 +115,29 @@ type Engine interface {
 }
 
 type DeltaStore interface {
-	ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*Delta, error)
+	Enqueue(ctx context.Context, delta Delta) (*Delta, error)
 
-	MarkSynced(ctx context.Context, deltaID string, ghostDetected bool) error
+	Get(ctx context.Context, deltaID DeltaID) (*Delta, bool, error)
 
-	MarkRetrying(ctx context.Context, deltaID string, err error, nextRunAt time.Time) error
+	Pull(ctx context.Context, limit int) ([]*Delta, error)
 
-	MarkDead(ctx context.Context, deltaID string, err error) error
+	MarkDispatched(ctx context.Context, deltaID DeltaID) error
+}
+
+type JobStore interface {
+	Create(ctx context.Context, job SyncJob) (*SyncJob, error)
+
+	Get(ctx context.Context, jobID SyncJobID) (*SyncJob, bool, error)
+
+	ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*SyncJob, error)
+
+	MarkSynced(ctx context.Context, jobID SyncJobID, ghostDetected bool) error
+
+	MarkRetrying(ctx context.Context, jobID SyncJobID, err error, nextRunAt time.Time) error
+
+	MarkDead(ctx context.Context, jobID SyncJobID, err error) error
+}
+
+type DispatchStore interface {
+	DispatchPending(ctx context.Context, limit int) ([]*SyncJob, error)
 }
