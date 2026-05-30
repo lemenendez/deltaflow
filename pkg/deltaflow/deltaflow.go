@@ -40,15 +40,15 @@ const (
 	DeltaIgnored    DeltaState = "ignored"
 )
 
-// JobSyncState represents the current state of a synchronization job, which can encompass multiple deltas. It indicates the overall progress and status of the synchronization process, such as whether it's still pending, actively processing, has completed successfully, is retrying after failures, or has been marked as dead due to unrecoverable errors.
-type JobSyncState string
+// SyncJobState represents the current state of a synchronization job, which can encompass multiple deltas. It indicates the overall progress and status of the synchronization process, such as whether it's still pending, actively processing, has completed successfully, is retrying after failures, or has been marked as dead due to unrecoverable errors.
+type SyncJobState string
 
 const (
-	StatePending    JobSyncState = "PENDING"
-	StateProcessing JobSyncState = "PROCESSING"
-	StateSynced     JobSyncState = "SYNCED"
-	StateRetrying   JobSyncState = "RETRYING"
-	StateDead       JobSyncState = "DEAD"
+	StatePending    SyncJobState = "pending"
+	StateProcessing SyncJobState = "processing"
+	StateSynced     SyncJobState = "synced"
+	StateRetrying   SyncJobState = "retrying"
+	StateDead       SyncJobState = "dead"
 )
 
 type SyncJobID string

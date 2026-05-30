@@ -81,21 +81,12 @@ func (s *MemoryDispatchStore) DispatchPending(ctx context.Context, limit int) ([
 				ProjectionKey:     cloneProjectionKey(delta.ProjectionKey),
 				ProjectionKeyHash: delta.ProjectionKeyHash,
 				State:             deltaflow.StatePending,
-				MaxAttempts:       5,
+				MaxAttempts:       defaultMaxAttempts,
 				AvailableAt:       now,
 				CreatedAt:         now,
 				UpdatedAt:         now,
 			},
 		})
-	}
-
-	for _, item := range staged {
-		if _, exists := s.jobStore.jobs[item.job.ID]; exists {
-			return nil, deltaflow.ErrJobAlreadyExists
-		}
-		if _, exists := s.jobStore.jobByDelta[item.deltaID]; exists {
-			return nil, deltaflow.ErrDeltaAlreadyMapped
-		}
 	}
 
 	for _, deltaID := range stagedMapped {

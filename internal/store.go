@@ -14,6 +14,8 @@ import (
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
+const defaultMaxAttempts = 5
+
 type DeltaMemoryStore struct {
 	mu     sync.Mutex
 	now    func() time.Time
@@ -203,6 +205,19 @@ func (s *JobMemoryStore) Create(ctx context.Context, job deltaflow.SyncJob) (*de
 }
 
 func (s *JobMemoryStore) createLocked(job deltaflow.SyncJob, now time.Time) (*deltaflow.SyncJob, error) {
+	if job.ID != "" {
+		if _, exists := s.jobs[job.ID]; exists {
+			return nil, deltaflow.ErrJobAlreadyExists
+		}
+	}
+	if job.Origin == deltaflow.JobOriginOutbox && job.DeltaID == nil {
+		return nil, deltaflow.ErrOutboxJobNeedsDelta
+	}
+	if job.Origin == deltaflow.JobOriginOutbox && job.DeltaID != nil {
+		if _, exists := s.jobByDelta[*job.DeltaID]; exists {
+			return nil, deltaflow.ErrDeltaAlreadyMapped
+		}
+	}
 	if job.ID == "" {
 		for {
 			s.nextID++
@@ -214,22 +229,11 @@ func (s *JobMemoryStore) createLocked(job deltaflow.SyncJob, now time.Time) (*de
 			break
 		}
 	}
-	if _, exists := s.jobs[job.ID]; exists {
-		return nil, deltaflow.ErrJobAlreadyExists
-	}
-	if job.Origin == deltaflow.JobOriginOutbox && job.DeltaID == nil {
-		return nil, deltaflow.ErrOutboxJobNeedsDelta
-	}
-	if job.Origin == deltaflow.JobOriginOutbox && job.DeltaID != nil {
-		if _, exists := s.jobByDelta[*job.DeltaID]; exists {
-			return nil, deltaflow.ErrDeltaAlreadyMapped
-		}
-	}
 	if job.State == "" {
 		job.State = deltaflow.StatePending
 	}
 	if job.MaxAttempts == 0 {
-		job.MaxAttempts = 5
+		job.MaxAttempts = defaultMaxAttempts
 	}
 	if job.AvailableAt.IsZero() {
 		job.AvailableAt = now

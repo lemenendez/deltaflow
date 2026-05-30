@@ -37,7 +37,7 @@ type SyncJob struct {
 	ProjectionKey     ProjectionKey
 	ProjectionKeyHash ProjectionKeyHash
 
-	State JobSyncState
+	State SyncJobState
 
 	AttemptCount int
 	MaxAttempts  int
