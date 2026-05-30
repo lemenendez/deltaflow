@@ -4,7 +4,7 @@
 >
 > Goal: keep DeltaFlow small, explicit, and clear.
 >
-> DeltaFlow v0.2 is a latest-state synchronization worker with an in-memory DeltaStore.
+> DeltaFlow v0.2 is a latest-state synchronization worker with in-memory Delta and SyncJob stores.
 
 ---
 
@@ -25,10 +25,10 @@ one Sync
 one Projector
 one ProjectionApplier
 latest_state mode only
-in-memory DeltaStore (non-durable)
+in-memory DeltaStore + JobStore + DispatchStore (non-durable)
 worker leases
 retries
-dead Deltas
+dead SyncJobs
 Delta Ghost handling
 ```
 
@@ -367,6 +367,19 @@ It means:
 Synchronize the latest state of Contact 123.
 ```
 
+Important: Outbox SyncJobs are created from Deltas.
+
+v0.2 also allows direct SyncJob creation for operational workflows.
+When `origin = outbox`, `delta_id` should reference the source Delta.
+When `origin = backfill`, `origin = replay`, or `origin = manual`, `delta_id` may be empty.
+
+Examples:
+App transaction -> creates Delta
+Dispatcher -> creates outbox SyncJob from Delta
+Backfill/replay/manual -> can create SyncJob directly
+Manual retry -> reactivates an existing SyncJob, or creates one when needed
+Worker -> processes SyncJob
+
 ---
 
 ### 3.9 Delta Outbox
@@ -535,18 +548,11 @@ source is too generic for the Projector role.
 connector implies plugin/registry architecture.
 ```
 
-Compatibility mapping:
-
-```text
-entity_type -> projection_type
-entity_id   -> projection_key with one field
-```
-
 Example:
 
 ```text
-entity_type = Contact
-entity_id   = 123
+entity = Contact
+id = 123
 ```
 
 Should be represented internally as:
@@ -570,63 +576,94 @@ Application transaction
   2. insert Delta into Delta Outbox
   3. commit
 
+Dispatcher
+    4. read pending Deltas
+    5. create SyncJobs for claimable Deltas
+    6. mark mapped Deltas as dispatched
+
 SyncWorker
-  4. claim pending Delta
-  5. call Projector.Project(identity)
-  6. if Projection exists:
+    7. claim pending SyncJob
+    8. call Projector.Project(identity)
+    9. if Projection exists:
          create upsert operation
      if Projection does not exist:
          create delete operation
-  7. call ProjectionApplier.Apply(operation)
-  8. mark Delta synced, retrying, or dead
+    10. call ProjectionApplier.Apply(operation)
+    11. mark SyncJob synced, retrying, or dead
 ```
 
 ---
 
-## 6. Delta States
+## 6. Delta and SyncJob States
 
-v0.2 uses one state machine for Deltas.
+v0.2 uses two explicit state models:
+
+1. Delta lifecycle (outbox-facing)
+2. SyncJob lifecycle (worker-facing)
+
+Delta states:
 
 ```text
-PENDING
-PROCESSING
-SYNCED
-RETRYING
-DEAD
+pending
+dispatched
+ignored
 ```
 
 Definitions:
 
 ```text
 pending
-  Delta exists and is available to be claimed.
+    Delta exists in the outbox and has not been mapped to a SyncJob.
+
+dispatched
+    Delta has been mapped to a SyncJob.
+
+ignored
+    Delta was intentionally skipped by the dispatch path.
+```
+
+SyncJob states:
+
+```text
+pending
+processing
+synced
+retrying
+dead
+```
+
+Definitions:
+
+```text
+pending
+    SyncJob exists and is available to be claimed.
 
 processing
-  A SyncWorker has claimed the Delta.
+    A SyncWorker has claimed the SyncJob.
 
 synced
   The ProjectionApplier successfully applied the required operation.
 
 retrying
-  The last attempt failed and the Delta is waiting for a future retry.
+    The last attempt failed and the SyncJob is waiting for a future retry.
 
 dead
-  The Delta exhausted retries or was manually marked dead.
+    The SyncJob exhausted retries or was manually marked dead.
 ```
 
 A failed attempt is not a separate stored state in v0.2. The worker records the
-error details and moves the Delta directly to `RETRYING` when another attempt
-is available, or to `DEAD` when retries are exhausted.
+error details and moves the SyncJob directly to `retrying` when another attempt
+is available, or to `dead` when retries are exhausted.
 
-No parent/child state model exists in v0.2.
+No TargetDelivery state model exists in v0.2.
 
-There is no TargetDelivery in v0.2.
+The Delta and SyncJob state models are intentionally separate.
 
 ---
 
 ## 7. Database Table
 
-From v0.3 onward, storage is split into two concerns:
+The domain model is split into two concerns:
 
 1. outbox table
 2. jobs table
@@ -646,8 +683,9 @@ Required behavior:
 - latest-state dedupe is supported by stable projection identity
 ```
 
-Detailed SQL schema, indexes, and migration shape are intentionally deferred
-until the outbox/jobs split is finalized.
+In v0.2, these concerns are represented by in-memory stores.
+
+Detailed SQL schema, indexes, and migration shape are deferred to a persistence milestone.
 
 ---
 
@@ -694,26 +732,52 @@ type ProjectionApplier interface {
 var (
     ErrProjectionNotFound = errors.New("projection not found")
     ErrDeltaNotFound      = errors.New("delta not found")
+    ErrJobNotFound        = errors.New("job not found")
     ErrInvalidLockFor     = errors.New("lock duration must be positive")
+    ErrOutboxJobNeedsDelta = errors.New("outbox job requires delta id")
+    ErrDeltaAlreadyExists = errors.New("delta already exists")
+    ErrJobAlreadyExists   = errors.New("job already exists")
+    ErrDeltaAlreadyMapped = errors.New("delta already mapped to job")
 )
 
 type DeltaStore interface {
-    ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*Delta, error)
+    Enqueue(ctx context.Context, delta Delta) (*Delta, error)
 
-    MarkSynced(ctx context.Context, deltaID string, ghostDetected bool) error
+    Get(ctx context.Context, deltaID DeltaID) (*Delta, bool, error)
 
-    MarkRetrying(ctx context.Context, deltaID string, err error, nextRunAt time.Time) error
+    Pull(ctx context.Context, limit int) ([]*Delta, error)
 
-    MarkDead(ctx context.Context, deltaID string, err error) error
+    MarkDispatched(ctx context.Context, deltaID DeltaID) error
+}
+
+type JobStore interface {
+    Create(ctx context.Context, job SyncJob) (*SyncJob, error)
+
+    Get(ctx context.Context, jobID SyncJobID) (*SyncJob, bool, error)
+
+    ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*SyncJob, error)
+
+    MarkSynced(ctx context.Context, jobID SyncJobID, ghostDetected bool) error
+
+    MarkRetrying(ctx context.Context, jobID SyncJobID, err error, nextRunAt time.Time) error
+
+    MarkDead(ctx context.Context, jobID SyncJobID, err error) error
+}
+
+type DispatchStore interface {
+    DispatchPending(ctx context.Context, limit int) ([]*SyncJob, error)
 }
 ```
 
-`ClaimNext` requires a positive `lockFor` duration. DeltaStore
-implementations should return `ErrInvalidLockFor` without claiming a Delta when
+`ClaimNext` requires a positive `lockFor` duration. JobStore
+implementations should return `ErrInvalidLockFor` without claiming a SyncJob when
 `lockFor <= 0`.
 
-`MarkSynced`, `MarkRetrying`, and `MarkDead` should return `ErrDeltaNotFound`
-when the requested Delta does not exist.
+`Create` should return `ErrOutboxJobNeedsDelta` when `job.Origin == JobOriginOutbox`
+and `job.DeltaID` is empty.
+
+`MarkSynced`, `MarkRetrying`, and `MarkDead` should return `ErrJobNotFound`
+when the requested SyncJob does not exist.
 
 Function adapters may also be provided:
 
@@ -740,18 +804,22 @@ This allows users to provide either structs or simple functions.
 Pseudo-code:
 
 ```go
-delta, err := store.ClaimNext(ctx, workerID, lockFor)
+if _, err := dispatcher.DispatchPending(ctx, pullSize); err != nil {
+    return err
+}
+
+job, err := jobStore.ClaimNext(ctx, workerID, lockFor)
 if err != nil {
     return err
 }
 
-if delta == nil {
+if job == nil {
     return nil
 }
 
 identity := ProjectionIdentity{
-    Type: delta.ProjectionType,
-    Key:  delta.ProjectionKey,
+    Type: job.ProjectionType,
+    Key:  job.ProjectionKey,
 }
 
 projection, err := projector.Project(ctx, identity)
@@ -765,13 +833,13 @@ case errors.Is(err, ErrProjectionNotFound):
 
     err = applier.Apply(ctx, op)
     if err != nil {
-        return failOrRetry(ctx, store, delta, err)
+        return failOrRetry(ctx, jobStore, job, err)
     }
 
-    return store.MarkSynced(ctx, delta.ID, true)
+    return jobStore.MarkSynced(ctx, job.ID, true)
 
 case err != nil:
-    return failOrRetry(ctx, store, delta, err)
+    return failOrRetry(ctx, jobStore, job, err)
 
 default:
     op := ProjectionOperation{
@@ -782,26 +850,26 @@ default:
 
     err = applier.Apply(ctx, op)
     if err != nil {
-        return failOrRetry(ctx, store, delta, err)
+        return failOrRetry(ctx, jobStore, job, err)
     }
 
-    return store.MarkSynced(ctx, delta.ID, false)
+    return jobStore.MarkSynced(ctx, job.ID, false)
 }
 ```
 
-Retry/dead selection belongs in the worker, using the explicit `DeltaStore`
+Retry/dead selection belongs in the worker, using the explicit `JobStore`
 methods:
 
 ```go
-func failOrRetry(ctx context.Context, store DeltaStore, delta *Delta, err error) error {
-    nextAttempt := delta.AttemptCount + 1
+func failOrRetry(ctx context.Context, store JobStore, job *SyncJob, err error) error {
+    nextAttempt := job.AttemptCount + 1
 
-    if nextAttempt >= delta.MaxAttempts {
-        return store.MarkDead(ctx, delta.ID, err)
+    if nextAttempt >= job.MaxAttempts {
+        return store.MarkDead(ctx, job.ID, err)
     }
 
     nextRunAt := time.Now().UTC().Add(backoff(nextAttempt))
-    return store.MarkRetrying(ctx, delta.ID, err, nextRunAt)
+    return store.MarkRetrying(ctx, job.ID, err, nextRunAt)
 }
 ```
 
@@ -820,9 +888,9 @@ initial_delay = 5 seconds
 max_delay = 5 minutes
 ```
 
-A failed Delta should move to `retrying` if attempts remain.
+A failed SyncJob should move to `retrying` if attempts remain.
 
-A failed Delta should move to `dead` if attempts are exhausted.
+A failed SyncJob should move to `dead` if attempts are exhausted.
 
 ```text
 failed attempt + attempts remain -> retrying
@@ -870,8 +938,17 @@ Example Go wiring:
 projector := deltaflow.ProjectorFunc(projectContact)
 applier := deltaflow.ProjectionApplierFunc(applyContactToElasticsearch)
 
-worker := deltaflow.NewSyncWorker(store, projector, applier)
-worker.Run(ctx)
+worker := SyncWorker{
+    JobStore:   jobStore,
+    Dispatcher: dispatchStore,
+    Projector:  projector,
+    Applier:    applier,
+    WorkerID:   "worker-1",
+    LockFor:    time.Minute,
+    PullSize:   100,
+}
+
+_ = worker.RunOnce(ctx)
 ```
 
 ---

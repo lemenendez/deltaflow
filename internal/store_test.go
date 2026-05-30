@@ -2,6 +2,8 @@ package internal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -10,62 +12,345 @@ import (
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
-func TestMemoryDeltaStoreInsertsPendingDelta(t *testing.T) {
+func TestDeltaMemoryStoreEnqueuePendingDelta(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryDeltaStore()
+	store := NewDeltaMemoryStore()
 
-	inserted, err := store.Insert(ctx, deltaflow.Delta{
+	inserted, err := store.Enqueue(ctx, deltaflow.Delta{
 		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
 		ProjectionType: "Contact",
 		ProjectionKey: deltaflow.ProjectionKey{
 			"contact_id": json.RawMessage(`"1"`),
 		},
 	})
 	if err != nil {
-		t.Fatalf("Insert returned error: %v", err)
+		t.Fatalf("Enqueue returned error: %v", err)
 	}
 
 	if inserted.ID == "" {
 		t.Fatal("inserted ID is empty")
 	}
-	if inserted.State != deltaflow.StatePending {
-		t.Fatalf("state = %s, want %s", inserted.State, deltaflow.StatePending)
+	if inserted.State != deltaflow.DeltaPending {
+		t.Fatalf("state = %s, want %s", inserted.State, deltaflow.DeltaPending)
 	}
-	if inserted.MaxAttempts != 5 {
-		t.Fatalf("max_attempts = %d, want 5", inserted.MaxAttempts)
+	if inserted.CreatedAt.IsZero() {
+		t.Fatal("created_at is zero")
+	}
+	if inserted.OccurredAt.IsZero() {
+		t.Fatal("occurred_at is zero")
 	}
 }
 
-func TestMemoryDeltaStoreClaimNextSkipsUnavailableRetry(t *testing.T) {
+func TestDeltaMemoryStoreEnqueueComputesProjectionKeyHash(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryDeltaStore()
+	store := NewDeltaMemoryStore()
+
+	inserted, err := store.Enqueue(ctx, deltaflow.Delta{
+		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+			"tenant_id":  json.RawMessage(`"t1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue returned error: %v", err)
+	}
+
+	if inserted.ProjectionKeyHash == "" {
+		t.Fatal("projection_key_hash is empty")
+	}
+
+	encoded, err := json.Marshal(inserted.ProjectionKey)
+	if err != nil {
+		t.Fatalf("Marshal projection key returned error: %v", err)
+	}
+	sum := sha256.Sum256(encoded)
+	want := deltaflow.ProjectionKeyHash(hex.EncodeToString(sum[:]))
+	if inserted.ProjectionKeyHash != want {
+		t.Fatalf("projection_key_hash = %s, want %s", inserted.ProjectionKeyHash, want)
+	}
+}
+
+func TestDeltaMemoryStoreEnqueueOverridesCallerProjectionKeyHash(t *testing.T) {
+	ctx := context.Background()
+	store := NewDeltaMemoryStore()
+
+	inserted, err := store.Enqueue(ctx, deltaflow.Delta{
+		SyncID:            "sync",
+		Origin:            deltaflow.OriginOperationInserted,
+		ProjectionType:    "Contact",
+		ProjectionKeyHash: "stale-hash",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+			"tenant_id":  json.RawMessage(`"t1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue returned error: %v", err)
+	}
+
+	encoded, err := json.Marshal(inserted.ProjectionKey)
+	if err != nil {
+		t.Fatalf("Marshal projection key returned error: %v", err)
+	}
+	sum := sha256.Sum256(encoded)
+	want := deltaflow.ProjectionKeyHash(hex.EncodeToString(sum[:]))
+	if inserted.ProjectionKeyHash != want {
+		t.Fatalf("projection_key_hash = %s, want %s", inserted.ProjectionKeyHash, want)
+	}
+	if inserted.ProjectionKeyHash == "stale-hash" {
+		t.Fatal("projection_key_hash preserved caller-supplied stale value")
+	}
+}
+
+func TestDeltaMemoryStorePullReturnsPendingInOrder(t *testing.T) {
+	ctx := context.Background()
+	store := NewDeltaMemoryStore()
 	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
 	store.now = func() time.Time { return now }
 
-	_, err := store.Insert(ctx, deltaflow.Delta{
-		ID:             "retry-later",
+	_, err := store.Enqueue(ctx, deltaflow.Delta{
+		ID:             "later",
 		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
 		ProjectionType: "Contact",
 		ProjectionKey: deltaflow.ProjectionKey{
 			"contact_id": json.RawMessage(`"1"`),
 		},
-		State:       deltaflow.StateRetrying,
-		AvailableAt: now.Add(time.Minute),
+		OccurredAt: now.Add(time.Minute),
 	})
 	if err != nil {
-		t.Fatalf("Insert retry-later returned error: %v", err)
+		t.Fatalf("Enqueue later returned error: %v", err)
 	}
 
-	ready, err := store.Insert(ctx, deltaflow.Delta{
+	ready, err := store.Enqueue(ctx, deltaflow.Delta{
 		ID:             "ready",
 		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+		OccurredAt: now,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue ready returned error: %v", err)
+	}
+
+	pulled, err := store.Pull(ctx, 1)
+	if err != nil {
+		t.Fatalf("Pull returned error: %v", err)
+	}
+	if len(pulled) != 1 {
+		t.Fatalf("pulled = %d items, want 1", len(pulled))
+	}
+	if pulled[0].ID != ready.ID {
+		t.Fatalf("pulled ID = %s, want %s", pulled[0].ID, ready.ID)
+	}
+	if pulled[0].State != deltaflow.DeltaPending {
+		t.Fatalf("pulled state = %s, want %s", pulled[0].State, deltaflow.DeltaPending)
+	}
+}
+
+func TestDeltaMemoryStoreMarkDispatched(t *testing.T) {
+	ctx := context.Background()
+	store := NewDeltaMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	inserted, err := store.Enqueue(ctx, deltaflow.Delta{
+		ID:             "pending",
+		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue returned error: %v", err)
+	}
+
+	if err := store.MarkDispatched(ctx, inserted.ID); err != nil {
+		t.Fatalf("MarkDispatched returned error: %v", err)
+	}
+
+	got, ok, err := store.Get(ctx, inserted.ID)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !ok {
+		t.Fatalf("delta %q not found", inserted.ID)
+	}
+	if got.State != deltaflow.DeltaDispatched {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.DeltaDispatched)
+	}
+	if got.DispatchedAt == nil || !got.DispatchedAt.Equal(now) {
+		t.Fatalf("dispatched_at = %v, want %v", got.DispatchedAt, now)
+	}
+}
+
+func TestDeltaMemoryStoreRejectsDuplicateIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewDeltaMemoryStore()
+	delta := deltaflow.Delta{
+		ID:             "duplicate",
+		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+	}
+
+	if _, err := store.Enqueue(ctx, delta); err != nil {
+		t.Fatalf("first Enqueue returned error: %v", err)
+	}
+	if _, err := store.Enqueue(ctx, delta); !errors.Is(err, deltaflow.ErrDeltaAlreadyExists) {
+		t.Fatalf("second Enqueue error = %v, want %v", err, deltaflow.ErrDeltaAlreadyExists)
+	}
+}
+
+func TestDeltaMemoryStoreEnqueueAutoIDSkipsExistingGeneratedIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewDeltaMemoryStore()
+
+	if _, err := store.Enqueue(ctx, deltaflow.Delta{
+		ID:             "delta-1",
+		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+	}); err != nil {
+		t.Fatalf("Enqueue explicit ID returned error: %v", err)
+	}
+
+	inserted, err := store.Enqueue(ctx, deltaflow.Delta{
+		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+	})
+	if err != nil {
+		t.Fatalf("Enqueue autogenerated ID returned error: %v", err)
+	}
+	if inserted.ID != "delta-2" {
+		t.Fatalf("inserted ID = %s, want %s", inserted.ID, "delta-2")
+	}
+}
+
+func TestDeltaMemoryStoreClonesMetadataDeeply(t *testing.T) {
+	ctx := context.Background()
+	store := NewDeltaMemoryStore()
+	child := map[string]any{"value": []any{"nested"}}
+	tags := []string{"alpha", "beta"}
+	attrs := map[string]string{"role": "admin"}
+	numbers := map[int]any{1: []string{"one"}}
+	metadata := map[string]any{
+		"labels":   []any{"a", child, nil},
+		"props":    map[string]any{"child": child},
+		"nullable": map[string]any{"inner": nil},
+		"tags":     tags,
+		"attrs":    attrs,
+		"numbers":  numbers,
+	}
+
+	inserted, err := store.Enqueue(ctx, deltaflow.Delta{
+		ID:             "meta",
+		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		Metadata:       metadata,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue returned error: %v", err)
+	}
+
+	child["value"].([]any)[0] = "mutated"
+	metadata["labels"].([]any)[0] = "mutated"
+	tags[0] = "mutated"
+	attrs["role"] = "mutated"
+	numbers[1].([]string)[0] = "mutated"
+
+	got, ok, err := store.Get(ctx, inserted.ID)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !ok {
+		t.Fatalf("delta %q not found", inserted.ID)
+	}
+
+	labels := got.Metadata["labels"].([]any)
+	if labels[0] != "a" {
+		t.Fatalf("labels[0] = %v, want %q", labels[0], "a")
+	}
+	if nested := labels[1].(map[string]any)["value"].([]any)[0]; nested != "nested" {
+		t.Fatalf("nested metadata = %v, want %q", nested, "nested")
+	}
+	if labels[2] != nil {
+		t.Fatalf("labels[2] = %v, want nil", labels[2])
+	}
+	if got.Metadata["nullable"].(map[string]any)["inner"] != nil {
+		t.Fatalf("nullable.inner = %v, want nil", got.Metadata["nullable"])
+	}
+	if got.Metadata["tags"].([]string)[0] != "alpha" {
+		t.Fatalf("tags[0] = %v, want %q", got.Metadata["tags"], "alpha")
+	}
+	if got.Metadata["attrs"].(map[string]string)["role"] != "admin" {
+		t.Fatalf("attrs.role = %v, want %q", got.Metadata["attrs"], "admin")
+	}
+	if got.Metadata["numbers"].(map[int]any)[1].([]string)[0] != "one" {
+		t.Fatalf("numbers[1][0] = %v, want %q", got.Metadata["numbers"], "one")
+	}
+
+	labels[0] = "changed-again"
+	gotAgain, ok, err := store.Get(ctx, inserted.ID)
+	if err != nil {
+		t.Fatalf("second Get returned error: %v", err)
+	}
+	if !ok {
+		t.Fatalf("delta %q not found on second get", inserted.ID)
+	}
+	if gotAgain.Metadata["labels"].([]any)[0] != "a" {
+		t.Fatalf("stored metadata was mutated through Get result: %v", gotAgain.Metadata["labels"])
+	}
+	gotTags := got.Metadata["tags"].([]string)
+	gotTags[0] = "changed-again"
+	if gotAgain.Metadata["tags"].([]string)[0] != "alpha" {
+		t.Fatalf("stored tags were mutated through Get result: %v", gotAgain.Metadata["tags"])
+	}
+}
+
+func TestJobMemoryStoreClaimNextRespectsAvailabilityAndLease(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	_, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:             "retry-later",
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		State:          deltaflow.StateRetrying,
+		AvailableAt:    now.Add(time.Minute),
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create retry-later returned error: %v", err)
+	}
+
+	ready, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:             "ready",
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
 		ProjectionType: "Contact",
 		ProjectionKey: deltaflow.ProjectionKey{
 			"contact_id": json.RawMessage(`"2"`),
 		},
 	})
 	if err != nil {
-		t.Fatalf("Insert ready returned error: %v", err)
+		t.Fatalf("Create ready returned error: %v", err)
 	}
 
 	claimed, err := store.ClaimNext(ctx, "worker-1", time.Minute)
@@ -79,123 +364,407 @@ func TestMemoryDeltaStoreClaimNextSkipsUnavailableRetry(t *testing.T) {
 		t.Fatalf("claimed ID = %s, want %s", claimed.ID, ready.ID)
 	}
 	if claimed.State != deltaflow.StateProcessing {
-		t.Fatalf("claimed state = %s, want %s", claimed.State, deltaflow.StateProcessing)
+		t.Fatalf("state = %s, want %s", claimed.State, deltaflow.StateProcessing)
+	}
+
+	claimedAgain, err := store.ClaimNext(ctx, "worker-2", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNext while leased returned error: %v", err)
+	}
+	if claimedAgain != nil {
+		t.Fatalf("ClaimNext while leased returned job %q, want nil", claimedAgain.ID)
+	}
+
+	now = now.Add(2 * time.Minute)
+	claimedExpired, err := store.ClaimNext(ctx, "worker-2", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNext after expiry returned error: %v", err)
+	}
+	if claimedExpired == nil {
+		t.Fatal("ClaimNext after expiry returned nil")
+	}
+	if claimedExpired.ID != ready.ID {
+		t.Fatalf("claimed ID after expiry = %s, want %s", claimedExpired.ID, ready.ID)
+	}
+	if claimedExpired.LockedBy == nil || *claimedExpired.LockedBy != "worker-2" {
+		t.Fatalf("locked_by = %v, want worker-2", claimedExpired.LockedBy)
+	}
+	if claimedExpired.LockedUntil == nil || !claimedExpired.LockedUntil.Equal(now.Add(time.Minute)) {
+		t.Fatalf("locked_until = %v, want %v", claimedExpired.LockedUntil, now.Add(time.Minute))
+	}
+	if got, ok, err := store.Get(ctx, claimedExpired.ID); err != nil || !ok || got.State != deltaflow.StateProcessing {
+		t.Fatalf("Get after claim = (%v, %v, %v), want processing state", got, ok, err)
+	}
+	if _, err := store.ClaimNext(ctx, "worker-1", 0); !errors.Is(err, deltaflow.ErrInvalidLockFor) {
+		t.Fatalf("ClaimNext zero lock error = %v, want %v", err, deltaflow.ErrInvalidLockFor)
+	}
+	if _, err := store.Create(ctx, deltaflow.SyncJob{ID: "ready", SyncID: "sync", Origin: deltaflow.JobOriginManual}); !errors.Is(err, deltaflow.ErrJobAlreadyExists) {
+		t.Fatalf("duplicate Create error = %v, want %v", err, deltaflow.ErrJobAlreadyExists)
 	}
 }
 
-func TestMemoryDeltaStoreClaimNextRespectsProcessingLease(t *testing.T) {
+func TestJobMemoryStoreCreateRejectsOutboxJobWithoutDeltaID(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryDeltaStore()
-	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
-	store.now = func() time.Time { return now }
+	store := NewJobMemoryStore()
 
-	lockedBy := "worker-1"
-	lockedUntil := now.Add(time.Minute)
-	inserted, err := store.Insert(ctx, deltaflow.Delta{
-		ID:             "processing",
+	_, err := store.Create(ctx, deltaflow.SyncJob{
 		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginOutbox,
 		ProjectionType: "Contact",
 		ProjectionKey: deltaflow.ProjectionKey{
 			"contact_id": json.RawMessage(`"1"`),
 		},
-		State:       deltaflow.StateProcessing,
-		LockedBy:    &lockedBy,
-		LockedUntil: &lockedUntil,
+	})
+	if !errors.Is(err, deltaflow.ErrOutboxJobNeedsDelta) {
+		t.Fatalf("Create error = %v, want %v", err, deltaflow.ErrOutboxJobNeedsDelta)
+	}
+}
+
+func TestJobMemoryStoreCreateInvalidOutboxJobDoesNotConsumeAutoID(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+
+	_, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID: "sync",
+		Origin: deltaflow.JobOriginOutbox,
+	})
+	if !errors.Is(err, deltaflow.ErrOutboxJobNeedsDelta) {
+		t.Fatalf("Create invalid outbox job error = %v, want %v", err, deltaflow.ErrOutboxJobNeedsDelta)
+	}
+
+	inserted, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID: "sync",
+		Origin: deltaflow.JobOriginManual,
 	})
 	if err != nil {
-		t.Fatalf("Insert processing returned error: %v", err)
+		t.Fatalf("Create autogenerated job returned error: %v", err)
 	}
-
-	claimed, err := store.ClaimNext(ctx, "worker-2", time.Minute)
-	if err != nil {
-		t.Fatalf("ClaimNext before lease expiry returned error: %v", err)
-	}
-	if claimed != nil {
-		t.Fatalf("ClaimNext before lease expiry returned delta %q, want nil", claimed.ID)
-	}
-
-	now = lockedUntil.Add(time.Nanosecond)
-	claimed, err = store.ClaimNext(ctx, "worker-2", time.Minute)
-	if err != nil {
-		t.Fatalf("ClaimNext after lease expiry returned error: %v", err)
-	}
-	if claimed == nil {
-		t.Fatal("ClaimNext after lease expiry returned nil")
-	}
-	if claimed.ID != inserted.ID {
-		t.Fatalf("claimed ID = %s, want %s", claimed.ID, inserted.ID)
-	}
-	if claimed.LockedBy == nil || *claimed.LockedBy != "worker-2" {
-		t.Fatalf("locked_by = %v, want worker-2", claimed.LockedBy)
-	}
-	if claimed.LockedUntil == nil || !claimed.LockedUntil.Equal(now.Add(time.Minute)) {
-		t.Fatalf("locked_until = %v, want %v", claimed.LockedUntil, now.Add(time.Minute))
+	if inserted.ID != "job-1" {
+		t.Fatalf("inserted ID = %s, want %s", inserted.ID, "job-1")
 	}
 }
 
-func TestMemoryDeltaStoreClaimNextRejectsNonPositiveLockFor(t *testing.T) {
+func TestJobMemoryStoreCreateDuplicateMappingDoesNotConsumeAutoID(t *testing.T) {
 	ctx := context.Background()
+	store := NewJobMemoryStore()
+	deltaID := deltaflow.DeltaID("delta-1")
 
-	tests := []struct {
-		name    string
-		lockFor time.Duration
-	}{
-		{name: "zero", lockFor: 0},
-		{name: "negative", lockFor: -time.Second},
+	_, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:      "mapped",
+		SyncID:  "sync",
+		DeltaID: cloneDeltaIDPtr(&deltaID),
+		Origin:  deltaflow.JobOriginOutbox,
+	})
+	if err != nil {
+		t.Fatalf("Create mapped job returned error: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := NewMemoryDeltaStore()
-			inserted, err := store.Insert(ctx, deltaflow.Delta{
-				SyncID:         "sync",
-				ProjectionType: "Contact",
-				ProjectionKey: deltaflow.ProjectionKey{
-					"contact_id": json.RawMessage(`"1"`),
-				},
-			})
-			if err != nil {
-				t.Fatalf("Insert returned error: %v", err)
-			}
+	_, err = store.Create(ctx, deltaflow.SyncJob{
+		SyncID:  "sync",
+		DeltaID: cloneDeltaIDPtr(&deltaID),
+		Origin:  deltaflow.JobOriginOutbox,
+	})
+	if !errors.Is(err, deltaflow.ErrDeltaAlreadyMapped) {
+		t.Fatalf("Create duplicate mapping error = %v, want %v", err, deltaflow.ErrDeltaAlreadyMapped)
+	}
 
-			claimed, err := store.ClaimNext(ctx, "worker-1", tt.lockFor)
-			if !errors.Is(err, deltaflow.ErrInvalidLockFor) {
-				t.Fatalf("ClaimNext error = %v, want %v", err, deltaflow.ErrInvalidLockFor)
-			}
-			if claimed != nil {
-				t.Fatalf("ClaimNext returned delta %q, want nil", claimed.ID)
-			}
-
-			got, ok, err := store.Get(ctx, inserted.ID)
-			if err != nil {
-				t.Fatalf("Get returned error: %v", err)
-			}
-			if !ok {
-				t.Fatalf("delta %q not found", inserted.ID)
-			}
-			if got.State != deltaflow.StatePending {
-				t.Fatalf("state = %s, want %s", got.State, deltaflow.StatePending)
-			}
-			if got.LockedBy != nil || got.LockedUntil != nil {
-				t.Fatalf("lock = (%v, %v), want nil lock", got.LockedBy, got.LockedUntil)
-			}
-		})
+	inserted, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID: "sync",
+		Origin: deltaflow.JobOriginManual,
+	})
+	if err != nil {
+		t.Fatalf("Create autogenerated job returned error: %v", err)
+	}
+	if inserted.ID != "job-1" {
+		t.Fatalf("inserted ID = %s, want %s", inserted.ID, "job-1")
 	}
 }
 
-func TestMemoryDeltaStoreRejectsDuplicateIDs(t *testing.T) {
+func TestJobMemoryStoreCreateAllowsManualJobSharingOutboxDeltaID(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryDeltaStore()
-	delta := deltaflow.Delta{
-		ID:             "duplicate",
+	store := NewJobMemoryStore()
+	deltaID := deltaflow.DeltaID("delta-1")
+
+	outboxJob, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:      "outbox-1",
+		SyncID:  "sync",
+		DeltaID: cloneDeltaIDPtr(&deltaID),
+		Origin:  deltaflow.JobOriginOutbox,
+	})
+	if err != nil {
+		t.Fatalf("Create outbox job returned error: %v", err)
+	}
+
+	manualJob, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:      "manual-1",
+		SyncID:  "sync",
+		DeltaID: cloneDeltaIDPtr(&deltaID),
+		Origin:  deltaflow.JobOriginManual,
+	})
+	if err != nil {
+		t.Fatalf("Create manual job returned error: %v", err)
+	}
+	if manualJob.DeltaID == nil || *manualJob.DeltaID != deltaID {
+		t.Fatalf("manual job delta_id = %v, want %s", manualJob.DeltaID, deltaID)
+	}
+	if mappedID, ok := store.jobByDelta[deltaID]; !ok {
+		t.Fatalf("jobByDelta missing mapping for %s", deltaID)
+	} else if mappedID != outboxJob.ID {
+		t.Fatalf("jobByDelta[%s] = %s, want %s", deltaID, mappedID, outboxJob.ID)
+	}
+}
+
+func TestJobMemoryStoreCreateAutoIDSkipsExistingGeneratedIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+
+	if _, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:     "job-1",
+		SyncID: "sync",
+		Origin: deltaflow.JobOriginManual,
+	}); err != nil {
+		t.Fatalf("Create explicit ID returned error: %v", err)
+	}
+
+	inserted, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID: "sync",
+		Origin: deltaflow.JobOriginManual,
+	})
+	if err != nil {
+		t.Fatalf("Create autogenerated ID returned error: %v", err)
+	}
+	if inserted.ID != "job-2" {
+		t.Fatalf("inserted ID = %s, want %s", inserted.ID, "job-2")
+	}
+}
+
+func TestMemoryDispatchStoreDispatchPendingSkipsOccupiedGeneratedIDs(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	dispatcher := NewMemoryDispatchStore(deltaStore, jobStore, nil)
+
+	first := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-1")
+	second := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-2")
+
+	jobStore.jobs["job-1"] = &deltaflow.SyncJob{ID: "job-1", SyncID: "sync", Origin: deltaflow.JobOriginOutbox}
+
+	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("DispatchPending returned error: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("jobs len = %d, want 2", len(jobs))
+	}
+	if jobs[0].ID != "job-2" || jobs[1].ID != "job-3" {
+		t.Fatalf("generated job IDs = [%s, %s], want [job-2, job-3]", jobs[0].ID, jobs[1].ID)
+	}
+
+	firstGot, ok, err := deltaStore.Get(ctx, first.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get first delta = (%v, %v, %v)", firstGot, ok, err)
+	}
+	if firstGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("first state = %s, want %s", firstGot.State, deltaflow.DeltaDispatched)
+	}
+
+	secondGot, ok, err := deltaStore.Get(ctx, second.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get second delta = (%v, %v, %v)", secondGot, ok, err)
+	}
+	if secondGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("second state = %s, want %s", secondGot.State, deltaflow.DeltaDispatched)
+	}
+
+	if len(jobStore.jobByDelta) != 2 {
+		t.Fatalf("jobByDelta len = %d, want 2", len(jobStore.jobByDelta))
+	}
+}
+
+func TestMemoryDispatchStoreDispatchPendingCarriesComputedProjectionKeyHash(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	dispatcher := NewMemoryDispatchStore(deltaStore, jobStore, nil)
+
+	inserted := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-hash")
+	if inserted.ProjectionKeyHash == "" {
+		t.Fatal("enqueued delta projection_key_hash is empty")
+	}
+
+	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("DispatchPending returned error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].ProjectionKeyHash == "" {
+		t.Fatal("dispatched job projection_key_hash is empty")
+	}
+	if jobs[0].ProjectionKeyHash != inserted.ProjectionKeyHash {
+		t.Fatalf("job projection_key_hash = %s, want %s", jobs[0].ProjectionKeyHash, inserted.ProjectionKeyHash)
+	}
+}
+
+func TestMemoryDispatchStoreIgnoresAlreadyMappedDelta(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	dispatcher := NewMemoryDispatchStore(deltaStore, jobStore, nil)
+
+	mapped := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-mapped")
+	fresh := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-fresh")
+
+	_, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		ID:          "mapped-job",
+		SyncID:      mapped.SyncID,
+		DeltaID:     cloneDeltaIDPtr(&mapped.ID),
+		Origin:      deltaflow.JobOriginOutbox,
+		State:       deltaflow.StatePending,
+		MaxAttempts: 5,
+	})
+	if err != nil {
+		t.Fatalf("Create mapped job returned error: %v", err)
+	}
+
+	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("DispatchPending returned error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].DeltaID == nil || *jobs[0].DeltaID != fresh.ID {
+		t.Fatalf("job delta_id = %v, want %s", jobs[0].DeltaID, fresh.ID)
+	}
+
+	mappedGot, ok, err := deltaStore.Get(ctx, mapped.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get mapped delta = (%v, %v, %v)", mappedGot, ok, err)
+	}
+	if mappedGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("mapped state = %s, want %s", mappedGot.State, deltaflow.DeltaDispatched)
+	}
+
+	freshGot, ok, err := deltaStore.Get(ctx, fresh.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get fresh delta = (%v, %v, %v)", freshGot, ok, err)
+	}
+	if freshGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("fresh state = %s, want %s", freshGot.State, deltaflow.DeltaDispatched)
+	}
+}
+
+func TestMemoryDispatchStoreIgnoresMappedDeltaWithOccupiedGeneratedID(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	dispatcher := NewMemoryDispatchStore(deltaStore, jobStore, nil)
+
+	mapped := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-mapped")
+	fresh := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-fresh")
+
+	_, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		ID:          "mapped-job",
+		SyncID:      mapped.SyncID,
+		DeltaID:     cloneDeltaIDPtr(&mapped.ID),
+		Origin:      deltaflow.JobOriginOutbox,
+		State:       deltaflow.StatePending,
+		MaxAttempts: 5,
+	})
+	if err != nil {
+		t.Fatalf("Create mapped job returned error: %v", err)
+	}
+
+	jobStore.jobs["job-1"] = &deltaflow.SyncJob{ID: "job-1", SyncID: "sync", Origin: deltaflow.JobOriginOutbox}
+
+	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("DispatchPending returned error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].ID != "job-2" {
+		t.Fatalf("generated job ID = %s, want %s", jobs[0].ID, "job-2")
+	}
+	if jobs[0].DeltaID == nil || *jobs[0].DeltaID != fresh.ID {
+		t.Fatalf("job delta_id = %v, want %s", jobs[0].DeltaID, fresh.ID)
+	}
+
+	mappedGot, ok, err := deltaStore.Get(ctx, mapped.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get mapped delta = (%v, %v, %v)", mappedGot, ok, err)
+	}
+	if mappedGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("mapped state = %s, want %s", mappedGot.State, deltaflow.DeltaDispatched)
+	}
+
+	freshGot, ok, err := deltaStore.Get(ctx, fresh.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get fresh delta = (%v, %v, %v)", freshGot, ok, err)
+	}
+	if freshGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("fresh state = %s, want %s", freshGot.State, deltaflow.DeltaDispatched)
+	}
+}
+
+func TestMemoryDispatchStoreManualJobWithDeltaIDDoesNotBlockDispatch(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	dispatcher := NewMemoryDispatchStore(deltaStore, jobStore, nil)
+
+	pending := enqueueDeltaForDispatch(t, ctx, deltaStore, "delta-1")
+
+	_, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		ID:          "manual-1",
+		SyncID:      pending.SyncID,
+		DeltaID:     cloneDeltaIDPtr(&pending.ID),
+		Origin:      deltaflow.JobOriginManual,
+		State:       deltaflow.StatePending,
+		MaxAttempts: 5,
+	})
+	if err != nil {
+		t.Fatalf("Create manual job returned error: %v", err)
+	}
+	if _, exists := jobStore.jobByDelta[pending.ID]; exists {
+		t.Fatalf("jobByDelta unexpectedly contains manual mapping for %s", pending.ID)
+	}
+
+	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("DispatchPending returned error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].DeltaID == nil || *jobs[0].DeltaID != pending.ID {
+		t.Fatalf("job delta_id = %v, want %s", jobs[0].DeltaID, pending.ID)
+	}
+
+	if mappedID, ok := jobStore.jobByDelta[pending.ID]; !ok {
+		t.Fatalf("jobByDelta missing mapping for %s", pending.ID)
+	} else if mappedID != jobs[0].ID {
+		t.Fatalf("jobByDelta[%s] = %s, want %s", pending.ID, mappedID, jobs[0].ID)
+	}
+}
+
+func enqueueDeltaForDispatch(t *testing.T, ctx context.Context, store *DeltaMemoryStore, id deltaflow.DeltaID) *deltaflow.Delta {
+	t.Helper()
+
+	delta, err := store.Enqueue(ctx, deltaflow.Delta{
+		ID:             id,
 		SyncID:         "sync",
+		Origin:         deltaflow.OriginOperationInserted,
 		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue returned error: %v", err)
 	}
-
-	if _, err := store.Insert(ctx, delta); err != nil {
-		t.Fatalf("first Insert returned error: %v", err)
-	}
-	if _, err := store.Insert(ctx, delta); !errors.Is(err, ErrDeltaAlreadyExists) {
-		t.Fatalf("second Insert error = %v, want %v", err, ErrDeltaAlreadyExists)
-	}
+	return delta
 }

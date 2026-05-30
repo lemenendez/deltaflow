@@ -2,30 +2,31 @@
 
 v0.1.0   Skeleton + vocabulary + DESIGN.md
 
-v0.2.0   Core domain model + in-memory DeltaStore
+v0.2.0   Core domain model + in-memory stores
          - intentionally non-durable in this milestone
          - Projection
          - ProjectionType
          - ProjectionKey
          - ProjectionIdentity
          - Delta
+         - SyncJob
          - Projector
          - ProjectionApplier
          - ProjectionOperation
-         - in-memory DeltaStore
-         - in-memory worker FSM tests
+         - in-memory DeltaStore + JobStore + DispatchStore
+         - Delta->SyncJob dispatch + worker FSM tests
 
-v0.3.0   SQL schema + Store contracts
-         - deltaflow_deltas
-         - DeltaStore interface
-         - one table acts as both transactional outbox and worker job queue
+v0.3.0   SQL schema + durable store implementation
+         - deltaflow_deltas + deltaflow_sync_jobs
+         - durable DeltaStore + JobStore contracts
+         - outbox/jobs split persists in SQL
          - canonical projection_key hashing
 
-v0.4.0   Postgres DeltaStore + leases
+v0.4.0   Postgres stores + leases
          - insert Deltas transactionally with application writes
-         - claim Deltas with FOR UPDATE SKIP LOCKED
+         - claim SyncJobs with FOR UPDATE SKIP LOCKED
          - retry scheduling
-         - dead Deltas
+         - dead SyncJobs
          - integration tests
 
 v0.5.0   latest_state MVP
