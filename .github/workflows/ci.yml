@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  root-tests:
+    name: Root Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run root tests
+        run: go test ./...
+
+  playground-01-smoke:
+    name: Playground 01 Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: playground/01-in-memory/go.mod
+
+      - name: Test standalone playground module
+        working-directory: playground/01-in-memory
+        run: go test ./...
+
+      - name: Run standalone playground module
+        working-directory: playground/01-in-memory
+        run: go run .

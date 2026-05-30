@@ -42,14 +42,14 @@ func runDeltas(ctx context.Context, deltas []deltaflow.Delta, projector deltaflo
 		projection, err := projector.Project(ctx, identity)
 		if err != nil {
 			if errors.Is(err, deltaflow.ErrProjectionNotFound) {
-				stats.Ghosts++
-				stats.Deletes++
 				if err := applier.Apply(ctx, deltaflow.ProjectionOperation{
 					Type:     deltaflow.ProjectionOpDelete,
 					Identity: identity,
 				}); err != nil {
 					return stats, err
 				}
+				stats.Ghosts++
+				stats.Deletes++
 				continue
 			}
 			return stats, err
