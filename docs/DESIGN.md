@@ -625,11 +625,11 @@ ignored
 SyncJob states:
 
 ```text
-PENDING
-PROCESSING
-SYNCED
-RETRYING
-DEAD
+pending
+processing
+synced
+retrying
+dead
 ```
 
 Definitions:
@@ -652,8 +652,8 @@ dead
 ```
 
 A failed attempt is not a separate stored state in v0.2. The worker records the
-error details and moves the SyncJob directly to `RETRYING` when another attempt
-is available, or to `DEAD` when retries are exhausted.
+error details and moves the SyncJob directly to `retrying` when another attempt
+is available, or to `dead` when retries are exhausted.
 
 No TargetDelivery state model exists in v0.2.
 
