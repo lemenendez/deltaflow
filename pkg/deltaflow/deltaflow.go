@@ -17,9 +17,8 @@ const (
 	OriginOperationChildChanged OriginOperationType = "child_changed"
 )
 
-// JobOriginType is the origin of the job that created the delta,
-// which can be used for auditing, debugging, and understanding the context of changes.
-// It helps to categorize deltas based on their source, such as whether they were generated from a backfill process, a manual operation, or an outbox event.
+// SyncJobOriginType identifies what created a SyncJob,
+// such as outbox dispatch, backfill, replay, manual operation, or an unknown source.
 type SyncJobOriginType string
 
 const (
