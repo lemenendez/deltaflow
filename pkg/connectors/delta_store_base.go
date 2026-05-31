@@ -154,7 +154,7 @@ func IsUniqueViolation(err error) bool {
 	}
 
 	value := reflect.Indirect(reflect.ValueOf(err))
-	if value.IsValid() {
+	if value.IsValid() && value.Kind() == reflect.Struct {
 		field := value.FieldByName("Code")
 		if field.IsValid() && field.Kind() == reflect.String && field.String() == "23505" {
 			return true

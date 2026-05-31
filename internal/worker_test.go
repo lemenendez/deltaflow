@@ -4,11 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
+
+func TestSyncWorkerRunOnceRejectsMissingSyncID(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{ID: "delta-misconfigured"})
+
+	worker := SyncWorker{
+		JobStore:   jobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, jobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:  recordApplier(nil, nil),
+		WorkerID: "worker-1",
+		LockFor:  time.Minute,
+	}
+
+	err := worker.RunOnce(ctx)
+	if err == nil {
+		t.Fatal("RunOnce returned nil error, want validation failure")
+	}
+	if !strings.Contains(err.Error(), "sync_id is required") {
+		t.Fatalf("RunOnce error = %v, want sync_id validation failure", err)
+	}
+
+	if len(jobStore.jobs) != 0 {
+		t.Fatalf("job store mutated = %d jobs, want 0", len(jobStore.jobs))
+	}
+	if got := mustGetDelta(t, ctx, deltaStore, "delta-misconfigured"); got.State != deltaflow.DeltaPending {
+		t.Fatalf("delta state = %s, want %s", got.State, deltaflow.DeltaPending)
+	}
+}
 
 func TestSyncWorkerMarksUpsertSynced(t *testing.T) {
 	ctx := context.Background()
