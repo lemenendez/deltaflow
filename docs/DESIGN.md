@@ -740,6 +740,10 @@ var (
     ErrDeltaAlreadyMapped = errors.New("delta already mapped to job")
 )
 
+These sentinels represent store-contract violations and common workflow
+branches. Callers should rely on them for precondition failures, not-found
+mutations, and outbox delta-to-job mapping conflicts.
+
 type DeltaStore interface {
     Enqueue(ctx context.Context, delta Delta) (*Delta, error)
 
