@@ -36,7 +36,7 @@ type SyncWorker struct {
 }
 
 func (w *SyncWorker) RunOnce(ctx context.Context) error {
-	if err := w.config().Validate(); err != nil {
+	if err := w.validateRunOnceDependencies(); err != nil {
 		return err
 	}
 
@@ -88,6 +88,23 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	}
 
 	return w.JobStore.MarkSynced(ctx, job.ID, false)
+}
+
+func (w *SyncWorker) validateRunOnceDependencies() error {
+	if err := w.config().Validate(); err != nil {
+		return err
+	}
+	if w.JobStore == nil {
+		return errors.New("sync worker config: job_store is required")
+	}
+	if w.Projector == nil {
+		return errors.New("sync worker config: projector is required")
+	}
+	if w.Applier == nil {
+		return errors.New("sync worker config: applier is required")
+	}
+
+	return nil
 }
 
 func (w *SyncWorker) dispatchDeltas(ctx context.Context) error {

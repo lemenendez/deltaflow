@@ -44,6 +44,66 @@ func TestSyncWorkerRunOnceRejectsMissingSyncID(t *testing.T) {
 	}
 }
 
+func TestSyncWorkerRunOnceRejectsMissingRequiredCollaborators(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		worker  SyncWorker
+		wantErr string
+	}{
+		{
+			name: "missing job store",
+			worker: SyncWorker{
+				Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+					return deltaflow.Projection{Identity: identity}, nil
+				}),
+				Applier:  recordApplier(nil, nil),
+				SyncID:   "sync",
+				WorkerID: "worker-1",
+				LockFor:  time.Minute,
+			},
+			wantErr: "job_store is required",
+		},
+		{
+			name: "missing projector",
+			worker: SyncWorker{
+				JobStore: NewJobMemoryStore(),
+				Applier:  recordApplier(nil, nil),
+				SyncID:   "sync",
+				WorkerID: "worker-1",
+				LockFor:  time.Minute,
+			},
+			wantErr: "projector is required",
+		},
+		{
+			name: "missing applier",
+			worker: SyncWorker{
+				JobStore: NewJobMemoryStore(),
+				Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+					return deltaflow.Projection{Identity: identity}, nil
+				}),
+				SyncID:   "sync",
+				WorkerID: "worker-1",
+				LockFor:  time.Minute,
+			},
+			wantErr: "applier is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.worker.RunOnce(ctx)
+			if err == nil {
+				t.Fatal("RunOnce returned nil error, want validation failure")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("RunOnce error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSyncWorkerMarksUpsertSynced(t *testing.T) {
 	ctx := context.Background()
 	deltaStore := NewDeltaMemoryStore()
