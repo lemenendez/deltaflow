@@ -299,7 +299,7 @@ WHERE id = $1::uuid`, jobID)
 	return job, true, nil
 }
 
-func (s *JobStore) ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
+func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -315,13 +315,16 @@ WITH candidate AS (
 	SELECT id
 	FROM deltaflow.deltaflow_sync_jobs
 	WHERE
-		(
-			state IN ('pending', 'retrying')
-			AND available_at <= $1
-		)
-		OR (
-			state = 'processing'
-			AND (locked_until IS NULL OR locked_until <= $1)
+		sync_id = $2
+		AND (
+			(
+				state IN ('pending', 'retrying')
+				AND available_at <= $1
+			)
+			OR (
+				state = 'processing'
+				AND (locked_until IS NULL OR locked_until <= $1)
+			)
 		)
 	ORDER BY available_at ASC, created_at ASC, id ASC
 	LIMIT 1
@@ -330,8 +333,8 @@ WITH candidate AS (
 UPDATE deltaflow.deltaflow_sync_jobs j
 SET
 	state = 'processing',
-	locked_by = $2,
-	locked_until = $3,
+	locked_by = $3,
+	locked_until = $4,
 	updated_at = $1
 FROM candidate
 WHERE j.id = candidate.id
@@ -355,7 +358,7 @@ RETURNING
 	j.synced_at,
 	j.dead_at,
 	j.created_at,
-	j.updated_at`, now, workerID, lockedUntil)
+	j.updated_at`, now, syncID, workerID, lockedUntil)
 
 	job, ok, err := s.ScanSyncJob(row)
 	if err != nil {

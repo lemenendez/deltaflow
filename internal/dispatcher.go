@@ -25,7 +25,7 @@ func NewMemoryDispatchStore(deltaStore *DeltaMemoryStore, jobStore *JobMemorySto
 	}
 }
 
-func (s *MemoryDispatchStore) DispatchPending(ctx context.Context, limit int) ([]*deltaflow.SyncJob, error) {
+func (s *MemoryDispatchStore) DispatchPending(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.SyncJob, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (s *MemoryDispatchStore) DispatchPending(ctx context.Context, limit int) ([
 	defer s.deltaStore.mu.Unlock()
 
 	now := s.deltaStore.now().UTC()
-	ids := s.deltaStore.pendingDeltaIDsLocked()
+	ids := s.deltaStore.pendingDeltaIDsLockedForSyncLocked(syncID)
 	if len(ids) > limit {
 		ids = ids[:limit]
 	}

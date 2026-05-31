@@ -745,7 +745,7 @@ type DeltaStore interface {
 
     Get(ctx context.Context, deltaID DeltaID) (*Delta, bool, error)
 
-    Pull(ctx context.Context, limit int) ([]*Delta, error)
+    Pull(ctx context.Context, syncID SyncID, limit int) ([]*Delta, error)
 
     MarkDispatched(ctx context.Context, deltaID DeltaID) error
 }
@@ -755,7 +755,7 @@ type JobStore interface {
 
     Get(ctx context.Context, jobID SyncJobID) (*SyncJob, bool, error)
 
-    ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*SyncJob, error)
+    ClaimNext(ctx context.Context, syncID SyncID, workerID string, lockFor time.Duration) (*SyncJob, error)
 
     MarkSynced(ctx context.Context, jobID SyncJobID, ghostDetected bool) error
 
@@ -765,7 +765,7 @@ type JobStore interface {
 }
 
 type DispatchStore interface {
-    DispatchPending(ctx context.Context, limit int) ([]*SyncJob, error)
+    DispatchPending(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
 }
 ```
 
@@ -801,14 +801,14 @@ This allows users to provide either structs or simple functions.
 
 ## 9. SyncWorker Logic
 
-Pseudo-code:
+Pseudo-code for a run-scoped worker:
 
 ```go
-if _, err := dispatcher.DispatchPending(ctx, pullSize); err != nil {
+if _, err := dispatcher.DispatchPending(ctx, syncID, pullSize); err != nil {
     return err
 }
 
-job, err := jobStore.ClaimNext(ctx, workerID, lockFor)
+job, err := jobStore.ClaimNext(ctx, syncID, workerID, lockFor)
 if err != nil {
     return err
 }

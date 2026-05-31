@@ -29,6 +29,7 @@ func TestSyncWorkerMarksUpsertSynced(t *testing.T) {
 			}, nil
 		}),
 		Applier:  recordApplier(&applied, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -66,6 +67,7 @@ func TestSyncWorkerMarksGhostDeleteSynced(t *testing.T) {
 			return deltaflow.Projection{}, deltaflow.ErrProjectionNotFound
 		}),
 		Applier:  recordApplier(&applied, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -102,6 +104,7 @@ func TestSyncWorkerRetriesFailedApply(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(nil, errApply),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -143,6 +146,7 @@ func TestSyncWorkerMarksDeadAfterMaxAttempts(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(nil, errApply),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -179,6 +183,7 @@ func TestSyncWorkerDispatchesDeltaToJobAtomically(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(nil, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -198,6 +203,54 @@ func TestSyncWorkerDispatchesDeltaToJobAtomically(t *testing.T) {
 	job := mustGetJobByDelta(t, ctx, jobStore, inserted.ID)
 	if job.DeltaID == nil || *job.DeltaID != inserted.ID {
 		t.Fatalf("job delta_id = %v, want %s", job.DeltaID, inserted.ID)
+	}
+}
+
+func TestSyncWorkerDispatchesOnlyOwnSyncDeltas(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	own := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{ID: "delta-own"})
+	foreign, err := deltaStore.Enqueue(ctx, deltaflow.Delta{
+		ID:             "delta-foreign",
+		SyncID:         "other-sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue foreign returned error: %v", err)
+	}
+
+	worker := SyncWorker{
+		JobStore:   jobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, jobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:  recordApplier(nil, nil),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		PullSize: 10,
+		LockFor:  time.Minute,
+	}
+
+	if err := worker.dispatchDeltas(ctx); err != nil {
+		t.Fatalf("dispatchDeltas returned error: %v", err)
+	}
+
+	ownGot := mustGetDelta(t, ctx, deltaStore, own.ID)
+	if ownGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("own state = %s, want %s", ownGot.State, deltaflow.DeltaDispatched)
+	}
+	foreignGot := mustGetDelta(t, ctx, deltaStore, foreign.ID)
+	if foreignGot.State != deltaflow.DeltaPending {
+		t.Fatalf("foreign state = %s, want %s", foreignGot.State, deltaflow.DeltaPending)
+	}
+	if _, ok := jobStore.jobByDelta[foreign.ID]; ok {
+		t.Fatal("dispatch created a job for foreign syncID")
 	}
 }
 
@@ -224,6 +277,7 @@ func TestSyncWorkerProcessesManualJobWithoutDispatcher(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(&applied, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}

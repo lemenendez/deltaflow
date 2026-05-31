@@ -26,7 +26,7 @@ func NewDispatchStore(deltaStore *DeltaStore, jobStore *JobStore, _ DispatchStor
 	return &DispatchStore{deltaStore: deltaStore, jobStore: jobStore}
 }
 
-func (s *DispatchStore) DispatchPending(ctx context.Context, limit int) ([]*deltaflow.SyncJob, error) {
+func (s *DispatchStore) DispatchPending(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.SyncJob, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (s *DispatchStore) DispatchPending(ctx context.Context, limit int) ([]*delt
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	pending, err := s.deltaStore.pullPendingForDispatchTx(ctx, tx, limit)
+	pending, err := s.deltaStore.pullPendingForDispatchTx(ctx, tx, syncID, limit)
 	if err != nil {
 		return nil, err
 	}

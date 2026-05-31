@@ -139,8 +139,21 @@ func TestDeltaMemoryStorePullReturnsPendingInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Enqueue ready returned error: %v", err)
 	}
+	foreign, err := store.Enqueue(ctx, deltaflow.Delta{
+		ID:             "foreign",
+		SyncID:         "other-sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"3"`),
+		},
+		OccurredAt: now.Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue foreign returned error: %v", err)
+	}
 
-	pulled, err := store.Pull(ctx, 1)
+	pulled, err := store.Pull(ctx, "sync", 1)
 	if err != nil {
 		t.Fatalf("Pull returned error: %v", err)
 	}
@@ -152,6 +165,9 @@ func TestDeltaMemoryStorePullReturnsPendingInOrder(t *testing.T) {
 	}
 	if pulled[0].State != deltaflow.DeltaPending {
 		t.Fatalf("pulled state = %s, want %s", pulled[0].State, deltaflow.DeltaPending)
+	}
+	if pulled[0].ID == foreign.ID {
+		t.Fatal("Pull ignored syncID and returned foreign delta")
 	}
 }
 
@@ -352,8 +368,21 @@ func TestJobMemoryStoreClaimNextRespectsAvailabilityAndLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create ready returned error: %v", err)
 	}
+	foreign, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:             "foreign",
+		SyncID:         "other-sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"3"`),
+		},
+		CreatedAt: now.Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("Create foreign returned error: %v", err)
+	}
 
-	claimed, err := store.ClaimNext(ctx, "worker-1", time.Minute)
+	claimed, err := store.ClaimNext(ctx, "sync", "worker-1", time.Minute)
 	if err != nil {
 		t.Fatalf("ClaimNext returned error: %v", err)
 	}
@@ -363,11 +392,14 @@ func TestJobMemoryStoreClaimNextRespectsAvailabilityAndLease(t *testing.T) {
 	if claimed.ID != ready.ID {
 		t.Fatalf("claimed ID = %s, want %s", claimed.ID, ready.ID)
 	}
+	if claimed.ID == foreign.ID {
+		t.Fatal("ClaimNext ignored syncID and claimed foreign job")
+	}
 	if claimed.State != deltaflow.StateProcessing {
 		t.Fatalf("state = %s, want %s", claimed.State, deltaflow.StateProcessing)
 	}
 
-	claimedAgain, err := store.ClaimNext(ctx, "worker-2", time.Minute)
+	claimedAgain, err := store.ClaimNext(ctx, "sync", "worker-2", time.Minute)
 	if err != nil {
 		t.Fatalf("ClaimNext while leased returned error: %v", err)
 	}
@@ -376,7 +408,7 @@ func TestJobMemoryStoreClaimNextRespectsAvailabilityAndLease(t *testing.T) {
 	}
 
 	now = now.Add(2 * time.Minute)
-	claimedExpired, err := store.ClaimNext(ctx, "worker-2", time.Minute)
+	claimedExpired, err := store.ClaimNext(ctx, "sync", "worker-2", time.Minute)
 	if err != nil {
 		t.Fatalf("ClaimNext after expiry returned error: %v", err)
 	}
@@ -395,7 +427,7 @@ func TestJobMemoryStoreClaimNextRespectsAvailabilityAndLease(t *testing.T) {
 	if got, ok, err := store.Get(ctx, claimedExpired.ID); err != nil || !ok || got.State != deltaflow.StateProcessing {
 		t.Fatalf("Get after claim = (%v, %v, %v), want processing state", got, ok, err)
 	}
-	if _, err := store.ClaimNext(ctx, "worker-1", 0); !errors.Is(err, deltaflow.ErrInvalidLockFor) {
+	if _, err := store.ClaimNext(ctx, "sync", "worker-1", 0); !errors.Is(err, deltaflow.ErrInvalidLockFor) {
 		t.Fatalf("ClaimNext zero lock error = %v, want %v", err, deltaflow.ErrInvalidLockFor)
 	}
 	if _, err := store.Create(ctx, deltaflow.SyncJob{ID: "ready", SyncID: "sync", Origin: deltaflow.JobOriginManual}); !errors.Is(err, deltaflow.ErrJobAlreadyExists) {
@@ -549,7 +581,7 @@ func TestMemoryDispatchStoreDispatchPendingSkipsOccupiedGeneratedIDs(t *testing.
 
 	jobStore.jobs["job-1"] = &deltaflow.SyncJob{ID: "job-1", SyncID: "sync", Origin: deltaflow.JobOriginOutbox}
 
-	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	jobs, err := dispatcher.DispatchPending(ctx, "sync", 10)
 	if err != nil {
 		t.Fatalf("DispatchPending returned error: %v", err)
 	}
@@ -592,7 +624,7 @@ func TestMemoryDispatchStoreDispatchPendingCarriesComputedProjectionKeyHash(t *t
 		t.Fatal("enqueued delta projection_key_hash is empty")
 	}
 
-	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	jobs, err := dispatcher.DispatchPending(ctx, "sync", 10)
 	if err != nil {
 		t.Fatalf("DispatchPending returned error: %v", err)
 	}
@@ -628,7 +660,7 @@ func TestMemoryDispatchStoreIgnoresAlreadyMappedDelta(t *testing.T) {
 		t.Fatalf("Create mapped job returned error: %v", err)
 	}
 
-	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	jobs, err := dispatcher.DispatchPending(ctx, "sync", 10)
 	if err != nil {
 		t.Fatalf("DispatchPending returned error: %v", err)
 	}
@@ -679,7 +711,7 @@ func TestMemoryDispatchStoreIgnoresMappedDeltaWithOccupiedGeneratedID(t *testing
 
 	jobStore.jobs["job-1"] = &deltaflow.SyncJob{ID: "job-1", SyncID: "sync", Origin: deltaflow.JobOriginOutbox}
 
-	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	jobs, err := dispatcher.DispatchPending(ctx, "sync", 10)
 	if err != nil {
 		t.Fatalf("DispatchPending returned error: %v", err)
 	}
@@ -733,7 +765,7 @@ func TestMemoryDispatchStoreManualJobWithDeltaIDDoesNotBlockDispatch(t *testing.
 		t.Fatalf("jobByDelta unexpectedly contains manual mapping for %s", pending.ID)
 	}
 
-	jobs, err := dispatcher.DispatchPending(ctx, 10)
+	jobs, err := dispatcher.DispatchPending(ctx, "sync", 10)
 	if err != nil {
 		t.Fatalf("DispatchPending returned error: %v", err)
 	}

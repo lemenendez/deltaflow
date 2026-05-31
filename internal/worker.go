@@ -14,6 +14,7 @@ type SyncWorker struct {
 	Projector  deltaflow.Projector
 	Applier    deltaflow.ProjectionApplier
 
+	SyncID   deltaflow.SyncID
 	WorkerID string
 	LockFor  time.Duration
 	PullSize int
@@ -24,7 +25,7 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		return err
 	}
 
-	job, err := w.JobStore.ClaimNext(ctx, w.WorkerID, w.LockFor)
+	job, err := w.JobStore.ClaimNext(ctx, w.SyncID, w.WorkerID, w.LockFor)
 	if err != nil {
 		return err
 	}
@@ -78,7 +79,7 @@ func (w *SyncWorker) dispatchDeltas(ctx context.Context) error {
 	if w.Dispatcher == nil {
 		return nil
 	}
-	_, err := w.Dispatcher.DispatchPending(ctx, pullSize)
+	_, err := w.Dispatcher.DispatchPending(ctx, w.SyncID, pullSize)
 	return err
 }
 

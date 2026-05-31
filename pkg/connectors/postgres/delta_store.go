@@ -112,7 +112,7 @@ WHERE id = $1::uuid`, deltaID)
 	return delta, true, nil
 }
 
-func (s *DeltaStore) Pull(ctx context.Context, limit int) ([]*deltaflow.Delta, error) {
+func (s *DeltaStore) Pull(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.Delta, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -135,8 +135,9 @@ SELECT
 	metadata
 FROM deltaflow.deltaflow_deltas
 WHERE state = 'pending'
+	AND sync_id = $2
 ORDER BY occurred_at ASC, created_at ASC, id ASC
-LIMIT $1`, limit)
+LIMIT $1`, limit, syncID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +158,7 @@ LIMIT $1`, limit)
 	return pulled, nil
 }
 
-func (s *DeltaStore) pullPendingForDispatchTx(ctx context.Context, tx *sql.Tx, limit int) ([]dispatchPendingDelta, error) {
+func (s *DeltaStore) pullPendingForDispatchTx(ctx context.Context, tx *sql.Tx, syncID deltaflow.SyncID, limit int) ([]dispatchPendingDelta, error) {
 	rows, err := tx.QueryContext(ctx, `
 SELECT
 	id::text,
@@ -167,9 +168,10 @@ SELECT
 	projection_key_hash
 FROM deltaflow.deltaflow_deltas
 WHERE state = 'pending'
+	AND sync_id = $2
 ORDER BY occurred_at ASC, created_at ASC, id ASC
 LIMIT $1
-FOR UPDATE SKIP LOCKED`, limit)
+FOR UPDATE SKIP LOCKED`, limit, syncID)
 	if err != nil {
 		return nil, err
 	}
