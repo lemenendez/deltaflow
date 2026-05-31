@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -47,7 +48,7 @@ func main() {
 
 	s := buildDemoScenario()
 	syncID := attachRunScopedSyncID(&s)
-	projector := deltaflow.ProjectorFunc(s.source.project)
+	projector := &countingProjector{projectFn: s.source.project}
 	applier := &countingApplier{applyFn: s.target.apply}
 
 	worker := internal.SyncWorker{
@@ -61,7 +62,7 @@ func main() {
 		PullSize:   len(s.deltas) + 4,
 	}
 
-	stats, err := runWorkerLoop(ctx, s, syncID, deltaStore, &worker, applier)
+	stats, err := runWorkerLoop(ctx, s, syncID, deltaStore, &worker, applier, projector)
 	if err != nil {
 		log.Fatalf("scenario failed: %v", err)
 	}
@@ -80,6 +81,7 @@ func runWorkerLoop(
 	deltaStore deltaflow.DeltaStore,
 	worker *internal.SyncWorker,
 	applier *countingApplier,
+	projector *countingProjector,
 ) (runStats, error) {
 	stats := runStats{}
 	worker.SyncID = syncID
@@ -102,7 +104,7 @@ func runWorkerLoop(
 
 	stats.Upserts = applier.upserts
 	stats.Deletes = applier.deletes
-	stats.Ghosts = applier.deletes
+	stats.Ghosts = projector.ghostDeletes
 
 	return stats, nil
 }
@@ -113,6 +115,19 @@ func attachRunScopedSyncID(scenario *contactSyncScenario) deltaflow.SyncID {
 		scenario.deltas[i].SyncID = runSyncID
 	}
 	return runSyncID
+}
+
+type countingProjector struct {
+	projectFn     func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error)
+	ghostDeletes  int
+}
+
+func (p *countingProjector) Project(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+	projection, err := p.projectFn(ctx, identity)
+	if errors.Is(err, deltaflow.ErrProjectionNotFound) {
+		p.ghostDeletes++
+	}
+	return projection, err
 }
 
 type countingApplier struct {

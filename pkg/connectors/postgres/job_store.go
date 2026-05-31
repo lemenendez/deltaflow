@@ -372,6 +372,9 @@ func isOutboxDeltaMappedViolation(err error) bool {
 	if err == nil {
 		return false
 	}
+	if !connectors.IsUniqueViolation(err) {
+		return false
+	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "deltaflow_sync_jobs_outbox_delta_unique")
 }

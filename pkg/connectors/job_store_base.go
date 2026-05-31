@@ -41,6 +41,12 @@ func (b *JobStoreBase) DefaultMaxAttempts() int {
 func (b *JobStoreBase) PrepareJobForCreate(job deltaflow.SyncJob) (deltaflow.SyncJob, error) {
 	now := b.Now()
 
+	hash, err := projectionKeyHash(job.ProjectionKey)
+	if err != nil {
+		return deltaflow.SyncJob{}, err
+	}
+	job.ProjectionKeyHash = hash
+
 	if job.Origin == "" {
 		job.Origin = deltaflow.JobOriginUnknown
 	}
