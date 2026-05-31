@@ -115,6 +115,24 @@ func TestPGDeltaStoreEnqueueComputesProjectionKeyHash(t *testing.T) {
 	}
 }
 
+func TestPGDeltaStoreRejectsProvidedID(t *testing.T) {
+	db := openTestDB(t)
+	truncateAll(t, db)
+	ctx := context.Background()
+	store := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
+
+	_, err := store.Enqueue(ctx, deltaflow.Delta{
+		ID:             "provided-id",
+		SyncID:         testSyncID,
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey:  testKey,
+	})
+	if !errors.Is(err, deltaflow.ErrDeltaIDProvided) {
+		t.Fatalf("Enqueue error = %v, want %v", err, deltaflow.ErrDeltaIDProvided)
+	}
+}
+
 func TestPGDeltaStoreGetRoundTrips(t *testing.T) {
 	db := openTestDB(t)
 	truncateAll(t, db)
@@ -330,6 +348,24 @@ func TestPGJobStoreCreateRejectsOutboxWithoutDelta(t *testing.T) {
 	})
 	if !errors.Is(err, deltaflow.ErrOutboxJobNeedsDelta) {
 		t.Fatalf("error = %v, want ErrOutboxJobNeedsDelta", err)
+	}
+}
+
+func TestPGJobStoreCreateRejectsProvidedID(t *testing.T) {
+	db := openTestDB(t)
+	truncateAll(t, db)
+	ctx := context.Background()
+	store := pgstore.NewJobStore(db, pgstore.JobStoreConfig{})
+
+	_, err := store.Create(ctx, deltaflow.SyncJob{
+		ID:             "provided-id",
+		SyncID:         testSyncID,
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey:  testKey,
+	})
+	if !errors.Is(err, deltaflow.ErrJobIDProvided) {
+		t.Fatalf("error = %v, want ErrJobIDProvided", err)
 	}
 }
 

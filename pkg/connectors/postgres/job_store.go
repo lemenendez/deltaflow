@@ -24,6 +24,9 @@ func (s *JobStore) Create(ctx context.Context, job deltaflow.SyncJob) (*deltaflo
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if job.ID != "" {
+		return nil, deltaflow.ErrJobIDProvided
+	}
 
 	job, err := s.PrepareJobForCreate(job)
 	if err != nil {
@@ -58,9 +61,7 @@ RETURNING
 		deltaID = *job.DeltaID
 	}
 
-	var row *sql.Row
-	if job.ID == "" {
-		row = s.DB.QueryRowContext(ctx, `
+	row := s.DB.QueryRowContext(ctx, `
 INSERT INTO deltaflow.deltaflow_sync_jobs (
 	sync_id,
 	delta_id,
@@ -103,102 +104,31 @@ VALUES (
 	$18,
 	$19
 )`+returning,
-			job.SyncID,
-			deltaID,
-			job.Origin,
-			job.ProjectionType,
-			job.ProjectionKey,
-			job.ProjectionKeyHash,
-			job.State,
-			job.AttemptCount,
-			job.MaxAttempts,
-			job.LastError,
-			job.LastErrorCode,
-			job.AvailableAt,
-			job.LockedBy,
-			job.LockedUntil,
-			job.GhostDetected,
-			job.SyncedAt,
-			job.DeadAt,
-			job.CreatedAt,
-			job.UpdatedAt,
-		)
-	} else {
-		row = s.DB.QueryRowContext(ctx, `
-INSERT INTO deltaflow.deltaflow_sync_jobs (
-	id,
-	sync_id,
-	delta_id,
-	origin,
-	projection_type,
-	projection_key,
-	projection_key_hash,
-	state,
-	attempt_count,
-	max_attempts,
-	last_error,
-	last_error_code,
-	available_at,
-	locked_by,
-	locked_until,
-	ghost_detected,
-	synced_at,
-	dead_at,
-	created_at,
-	updated_at
-)
-VALUES (
-	$1::uuid,
-	$2,
-	$3::uuid,
-	$4,
-	$5,
-	$6::jsonb,
-	$7,
-	$8,
-	$9,
-	$10,
-	$11,
-	$12,
-	$13,
-	$14,
-	$15,
-	$16,
-	$17,
-	$18,
-	$19,
-	$20
-)`+returning,
-			job.ID,
-			job.SyncID,
-			deltaID,
-			job.Origin,
-			job.ProjectionType,
-			job.ProjectionKey,
-			job.ProjectionKeyHash,
-			job.State,
-			job.AttemptCount,
-			job.MaxAttempts,
-			job.LastError,
-			job.LastErrorCode,
-			job.AvailableAt,
-			job.LockedBy,
-			job.LockedUntil,
-			job.GhostDetected,
-			job.SyncedAt,
-			job.DeadAt,
-			job.CreatedAt,
-			job.UpdatedAt,
-		)
-	}
+		job.SyncID,
+		deltaID,
+		job.Origin,
+		job.ProjectionType,
+		job.ProjectionKey,
+		job.ProjectionKeyHash,
+		job.State,
+		job.AttemptCount,
+		job.MaxAttempts,
+		job.LastError,
+		job.LastErrorCode,
+		job.AvailableAt,
+		job.LockedBy,
+		job.LockedUntil,
+		job.GhostDetected,
+		job.SyncedAt,
+		job.DeadAt,
+		job.CreatedAt,
+		job.UpdatedAt,
+	)
 
 	created, ok, err := s.ScanSyncJob(row)
 	if err != nil {
 		if isOutboxDeltaMappedViolation(err) {
 			return nil, deltaflow.ErrDeltaAlreadyMapped
-		}
-		if isJobIDUniqueViolation(err) {
-			return nil, deltaflow.ErrJobAlreadyExists
 		}
 		return nil, err
 	}
@@ -444,15 +374,4 @@ func isOutboxDeltaMappedViolation(err error) bool {
 	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "deltaflow_sync_jobs_outbox_delta_unique")
-}
-
-func isJobIDUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "duplicate key") && !strings.Contains(strings.ToLower(err.Error()), "unique") {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "deltaflow_sync_jobs_pkey") || strings.Contains(message, "(id)")
 }

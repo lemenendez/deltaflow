@@ -35,24 +35,22 @@ func (s *DeltaMemoryStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if delta.ID != "" {
+		return nil, deltaflow.ErrDeltaIDProvided
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now().UTC()
-	if delta.ID == "" {
-		for {
-			s.nextID++
-			candidate := deltaflow.DeltaID(fmt.Sprintf("delta-%d", s.nextID))
-			if _, exists := s.deltas[candidate]; exists {
-				continue
-			}
-			delta.ID = candidate
-			break
+	for {
+		s.nextID++
+		candidate := deltaflow.DeltaID(fmt.Sprintf("delta-%d", s.nextID))
+		if _, exists := s.deltas[candidate]; exists {
+			continue
 		}
-	}
-	if _, exists := s.deltas[delta.ID]; exists {
-		return nil, deltaflow.ErrDeltaAlreadyExists
+		delta.ID = candidate
+		break
 	}
 	if delta.State == "" {
 		delta.State = deltaflow.DeltaPending
@@ -220,6 +218,9 @@ func (s *JobMemoryStore) Create(ctx context.Context, job deltaflow.SyncJob) (*de
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if job.ID != "" {
+		return nil, deltaflow.ErrJobIDProvided
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -228,11 +229,6 @@ func (s *JobMemoryStore) Create(ctx context.Context, job deltaflow.SyncJob) (*de
 }
 
 func (s *JobMemoryStore) createLocked(job deltaflow.SyncJob, now time.Time) (*deltaflow.SyncJob, error) {
-	if job.ID != "" {
-		if _, exists := s.jobs[job.ID]; exists {
-			return nil, deltaflow.ErrJobAlreadyExists
-		}
-	}
 	if job.Origin == deltaflow.JobOriginOutbox && job.DeltaID == nil {
 		return nil, deltaflow.ErrOutboxJobNeedsDelta
 	}

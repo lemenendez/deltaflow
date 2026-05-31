@@ -22,15 +22,14 @@ func (s *DeltaStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (*delta
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if delta.ID != "" {
+		return nil, deltaflow.ErrDeltaIDProvided
+	}
 
 	normalized, projectionKeyJSON, metadataJSON, err := s.PrepareDeltaForEnqueue(delta)
 	if err != nil {
 		return nil, err
 	}
-
-	// Keep compatibility with callers that still pass IDs, but durable Postgres
-	// storage always uses DB-generated UUIDv7 values for clustered PK locality.
-	normalized.ID = ""
 
 	const returning = `
 RETURNING
@@ -73,9 +72,6 @@ VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb)
 
 	inserted, err := s.ScanDelta(row)
 	if err != nil {
-		if connectors.IsUniqueViolation(err) {
-			return nil, deltaflow.ErrDeltaAlreadyExists
-		}
 		return nil, err
 	}
 	return inserted, nil

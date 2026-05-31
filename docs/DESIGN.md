@@ -734,9 +734,9 @@ var (
     ErrDeltaNotFound      = errors.New("delta not found")
     ErrJobNotFound        = errors.New("job not found")
     ErrInvalidLockFor     = errors.New("lock duration must be positive")
+    ErrDeltaIDProvided    = errors.New("delta id must be empty")
     ErrOutboxJobNeedsDelta = errors.New("outbox job requires delta id")
-    ErrDeltaAlreadyExists = errors.New("delta already exists")
-    ErrJobAlreadyExists   = errors.New("job already exists")
+    ErrJobIDProvided      = errors.New("job id must be empty")
     ErrDeltaAlreadyMapped = errors.New("delta already mapped to job")
 )
 
@@ -772,6 +772,14 @@ type DispatchStore interface {
 `ClaimNext` requires a positive `lockFor` duration. JobStore
 implementations should return `ErrInvalidLockFor` without claiming a SyncJob when
 `lockFor <= 0`.
+
+`Enqueue` requires `delta.ID` to be empty. DeltaStore implementations should
+return `ErrDeltaIDProvided` when callers provide a non-empty ID, because the
+store owns Delta primary key assignment.
+
+`Create` requires `job.ID` to be empty. JobStore implementations should return
+`ErrJobIDProvided` when callers provide a non-empty ID, because the store owns
+SyncJob primary key assignment.
 
 `Create` should return `ErrOutboxJobNeedsDelta` when `job.Origin == JobOriginOutbox`
 and `job.DeltaID` is empty.
