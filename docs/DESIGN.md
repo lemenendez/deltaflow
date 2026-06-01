@@ -734,18 +734,22 @@ var (
     ErrDeltaNotFound      = errors.New("delta not found")
     ErrJobNotFound        = errors.New("job not found")
     ErrInvalidLockFor     = errors.New("lock duration must be positive")
+    ErrDeltaIDProvided    = errors.New("delta id must be empty")
     ErrOutboxJobNeedsDelta = errors.New("outbox job requires delta id")
-    ErrDeltaAlreadyExists = errors.New("delta already exists")
-    ErrJobAlreadyExists   = errors.New("job already exists")
+    ErrJobIDProvided      = errors.New("job id must be empty")
     ErrDeltaAlreadyMapped = errors.New("delta already mapped to job")
 )
+
+These sentinels represent store-contract violations and common workflow
+branches. Callers should rely on them for precondition failures, not-found
+mutations, and outbox delta-to-job mapping conflicts.
 
 type DeltaStore interface {
     Enqueue(ctx context.Context, delta Delta) (*Delta, error)
 
     Get(ctx context.Context, deltaID DeltaID) (*Delta, bool, error)
 
-    Pull(ctx context.Context, limit int) ([]*Delta, error)
+    Pull(ctx context.Context, syncID SyncID, limit int) ([]*Delta, error)
 
     MarkDispatched(ctx context.Context, deltaID DeltaID) error
 }
@@ -755,7 +759,7 @@ type JobStore interface {
 
     Get(ctx context.Context, jobID SyncJobID) (*SyncJob, bool, error)
 
-    ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*SyncJob, error)
+    ClaimNext(ctx context.Context, syncID SyncID, workerID string, lockFor time.Duration) (*SyncJob, error)
 
     MarkSynced(ctx context.Context, jobID SyncJobID, ghostDetected bool) error
 
@@ -765,13 +769,21 @@ type JobStore interface {
 }
 
 type DispatchStore interface {
-    DispatchPending(ctx context.Context, limit int) ([]*SyncJob, error)
+    DispatchPending(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
 }
 ```
 
 `ClaimNext` requires a positive `lockFor` duration. JobStore
 implementations should return `ErrInvalidLockFor` without claiming a SyncJob when
 `lockFor <= 0`.
+
+`Enqueue` requires `delta.ID` to be empty. DeltaStore implementations should
+return `ErrDeltaIDProvided` when callers provide a non-empty ID, because the
+store owns Delta primary key assignment.
+
+`Create` requires `job.ID` to be empty. JobStore implementations should return
+`ErrJobIDProvided` when callers provide a non-empty ID, because the store owns
+SyncJob primary key assignment.
 
 `Create` should return `ErrOutboxJobNeedsDelta` when `job.Origin == JobOriginOutbox`
 and `job.DeltaID` is empty.
@@ -801,14 +813,14 @@ This allows users to provide either structs or simple functions.
 
 ## 9. SyncWorker Logic
 
-Pseudo-code:
+Pseudo-code for a run-scoped worker:
 
 ```go
-if _, err := dispatcher.DispatchPending(ctx, pullSize); err != nil {
+if _, err := dispatcher.DispatchPending(ctx, syncID, pullSize); err != nil {
     return err
 }
 
-job, err := jobStore.ClaimNext(ctx, workerID, lockFor)
+job, err := jobStore.ClaimNext(ctx, syncID, workerID, lockFor)
 if err != nil {
     return err
 }

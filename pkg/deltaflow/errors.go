@@ -3,12 +3,20 @@ package deltaflow
 import "errors"
 
 var (
-	ErrProjectionNotFound  = errors.New("projection not found")
-	ErrDeltaNotFound       = errors.New("delta not found")
-	ErrJobNotFound         = errors.New("job not found")
-	ErrInvalidLockFor      = errors.New("lock duration must be positive")
+	// Returned by Projector implementations when a projection does not exist.
+	ErrProjectionNotFound = errors.New("projection not found")
+	// Returned by DeltaStore mutators when the referenced delta cannot be found.
+	ErrDeltaNotFound = errors.New("delta not found")
+	// Returned by JobStore mutators when the referenced job cannot be found.
+	ErrJobNotFound = errors.New("job not found")
+	// Returned by JobStore.ClaimNext when lockFor is zero or negative.
+	ErrInvalidLockFor = errors.New("lock duration must be positive")
+	// Returned by DeltaStore.Enqueue when callers provide a non-empty Delta.ID.
+	ErrDeltaIDProvided = errors.New("delta id must be empty")
+	// Returned by JobStore.Create when an outbox job omits DeltaID.
 	ErrOutboxJobNeedsDelta = errors.New("outbox job requires delta id")
-	ErrDeltaAlreadyExists  = errors.New("delta already exists")
-	ErrJobAlreadyExists    = errors.New("job already exists")
-	ErrDeltaAlreadyMapped  = errors.New("delta already mapped to job")
+	// Returned by JobStore.Create when callers provide a non-empty SyncJob.ID.
+	ErrJobIDProvided = errors.New("job id must be empty")
+	// Returned by JobStore.Create when an outbox job reuses a mapped delta.
+	ErrDeltaAlreadyMapped = errors.New("delta already mapped to job")
 )

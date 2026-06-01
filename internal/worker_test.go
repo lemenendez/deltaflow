@@ -4,17 +4,111 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
+func TestSyncWorkerRunOnceRejectsMissingSyncID(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   jobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, jobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:  recordApplier(nil, nil),
+		WorkerID: "worker-1",
+		LockFor:  time.Minute,
+	}
+
+	err := worker.RunOnce(ctx)
+	if err == nil {
+		t.Fatal("RunOnce returned nil error, want validation failure")
+	}
+	if !strings.Contains(err.Error(), "sync_id is required") {
+		t.Fatalf("RunOnce error = %v, want sync_id validation failure", err)
+	}
+
+	if len(jobStore.jobs) != 0 {
+		t.Fatalf("job store mutated = %d jobs, want 0", len(jobStore.jobs))
+	}
+	if got := mustGetDelta(t, ctx, deltaStore, inserted.ID); got.State != deltaflow.DeltaPending {
+		t.Fatalf("delta state = %s, want %s", got.State, deltaflow.DeltaPending)
+	}
+}
+
+func TestSyncWorkerRunOnceRejectsMissingRequiredCollaborators(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		worker  SyncWorker
+		wantErr string
+	}{
+		{
+			name: "missing job store",
+			worker: SyncWorker{
+				Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+					return deltaflow.Projection{Identity: identity}, nil
+				}),
+				Applier:  recordApplier(nil, nil),
+				SyncID:   "sync",
+				WorkerID: "worker-1",
+				LockFor:  time.Minute,
+			},
+			wantErr: "job_store is required",
+		},
+		{
+			name: "missing projector",
+			worker: SyncWorker{
+				JobStore: NewJobMemoryStore(),
+				Applier:  recordApplier(nil, nil),
+				SyncID:   "sync",
+				WorkerID: "worker-1",
+				LockFor:  time.Minute,
+			},
+			wantErr: "projector is required",
+		},
+		{
+			name: "missing applier",
+			worker: SyncWorker{
+				JobStore: NewJobMemoryStore(),
+				Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+					return deltaflow.Projection{Identity: identity}, nil
+				}),
+				SyncID:   "sync",
+				WorkerID: "worker-1",
+				LockFor:  time.Minute,
+			},
+			wantErr: "applier is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.worker.RunOnce(ctx)
+			if err == nil {
+				t.Fatal("RunOnce returned nil error, want validation failure")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("RunOnce error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSyncWorkerMarksUpsertSynced(t *testing.T) {
 	ctx := context.Background()
 	deltaStore := NewDeltaMemoryStore()
 	jobStore := NewJobMemoryStore()
-	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{ID: "delta-upsert"})
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
 
 	var applied []deltaflow.ProjectionOperation
 	worker := SyncWorker{
@@ -29,6 +123,7 @@ func TestSyncWorkerMarksUpsertSynced(t *testing.T) {
 			}, nil
 		}),
 		Applier:  recordApplier(&applied, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -56,7 +151,7 @@ func TestSyncWorkerMarksGhostDeleteSynced(t *testing.T) {
 	ctx := context.Background()
 	deltaStore := NewDeltaMemoryStore()
 	jobStore := NewJobMemoryStore()
-	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{ID: "delta-ghost"})
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
 
 	var applied []deltaflow.ProjectionOperation
 	worker := SyncWorker{
@@ -66,6 +161,7 @@ func TestSyncWorkerMarksGhostDeleteSynced(t *testing.T) {
 			return deltaflow.Projection{}, deltaflow.ErrProjectionNotFound
 		}),
 		Applier:  recordApplier(&applied, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -90,9 +186,7 @@ func TestSyncWorkerRetriesFailedApply(t *testing.T) {
 	ctx := context.Background()
 	deltaStore := NewDeltaMemoryStore()
 	jobStore := NewJobMemoryStore()
-	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{
-		ID: "delta-retry",
-	})
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
 
 	errApply := errors.New("apply failed")
 	worker := SyncWorker{
@@ -102,6 +196,7 @@ func TestSyncWorkerRetriesFailedApply(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(nil, errApply),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -129,7 +224,7 @@ func TestSyncWorkerMarksDeadAfterMaxAttempts(t *testing.T) {
 	ctx := context.Background()
 	deltaStore := NewDeltaMemoryStore()
 	jobStore := NewJobMemoryStore()
-	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{ID: "delta-dead"})
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
 	job := seedJobForDelta(t, ctx, jobStore, inserted.ID, 4, 5)
 	if err := deltaStore.MarkDispatched(ctx, inserted.ID); err != nil {
 		t.Fatalf("MarkDispatched returned error: %v", err)
@@ -143,6 +238,7 @@ func TestSyncWorkerMarksDeadAfterMaxAttempts(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(nil, errApply),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -170,7 +266,7 @@ func TestSyncWorkerDispatchesDeltaToJobAtomically(t *testing.T) {
 	ctx := context.Background()
 	deltaStore := NewDeltaMemoryStore()
 	jobStore := NewJobMemoryStore()
-	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{ID: "delta-dispatch"})
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
 
 	worker := SyncWorker{
 		JobStore:   jobStore,
@@ -179,6 +275,7 @@ func TestSyncWorkerDispatchesDeltaToJobAtomically(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(nil, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}
@@ -198,6 +295,53 @@ func TestSyncWorkerDispatchesDeltaToJobAtomically(t *testing.T) {
 	job := mustGetJobByDelta(t, ctx, jobStore, inserted.ID)
 	if job.DeltaID == nil || *job.DeltaID != inserted.ID {
 		t.Fatalf("job delta_id = %v, want %s", job.DeltaID, inserted.ID)
+	}
+}
+
+func TestSyncWorkerDispatchesOnlyOwnSyncDeltas(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	own := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+	foreign, err := deltaStore.Enqueue(ctx, deltaflow.Delta{
+		SyncID:         "other-sync",
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue foreign returned error: %v", err)
+	}
+
+	worker := SyncWorker{
+		JobStore:   jobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, jobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:  recordApplier(nil, nil),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		PullSize: 10,
+		LockFor:  time.Minute,
+	}
+
+	if err := worker.dispatchDeltas(ctx); err != nil {
+		t.Fatalf("dispatchDeltas returned error: %v", err)
+	}
+
+	ownGot := mustGetDelta(t, ctx, deltaStore, own.ID)
+	if ownGot.State != deltaflow.DeltaDispatched {
+		t.Fatalf("own state = %s, want %s", ownGot.State, deltaflow.DeltaDispatched)
+	}
+	foreignGot := mustGetDelta(t, ctx, deltaStore, foreign.ID)
+	if foreignGot.State != deltaflow.DeltaPending {
+		t.Fatalf("foreign state = %s, want %s", foreignGot.State, deltaflow.DeltaPending)
+	}
+	if _, ok := jobStore.jobByDelta[foreign.ID]; ok {
+		t.Fatal("dispatch created a job for foreign syncID")
 	}
 }
 
@@ -224,6 +368,7 @@ func TestSyncWorkerProcessesManualJobWithoutDispatcher(t *testing.T) {
 			return deltaflow.Projection{Identity: identity}, nil
 		}),
 		Applier:  recordApplier(&applied, nil),
+		SyncID:   "sync",
 		WorkerID: "worker-1",
 		LockFor:  time.Minute,
 	}

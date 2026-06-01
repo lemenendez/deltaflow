@@ -118,7 +118,7 @@ type DeltaStore interface {
 
 	Get(ctx context.Context, deltaID DeltaID) (*Delta, bool, error)
 
-	Pull(ctx context.Context, limit int) ([]*Delta, error)
+	Pull(ctx context.Context, syncID SyncID, limit int) ([]*Delta, error)
 
 	MarkDispatched(ctx context.Context, deltaID DeltaID) error
 }
@@ -128,7 +128,7 @@ type JobStore interface {
 
 	Get(ctx context.Context, jobID SyncJobID) (*SyncJob, bool, error)
 
-	ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*SyncJob, error)
+	ClaimNext(ctx context.Context, syncID SyncID, workerID string, lockFor time.Duration) (*SyncJob, error)
 
 	MarkSynced(ctx context.Context, jobID SyncJobID, ghostDetected bool) error
 
@@ -138,5 +138,5 @@ type JobStore interface {
 }
 
 type DispatchStore interface {
-	DispatchPending(ctx context.Context, limit int) ([]*SyncJob, error)
+	DispatchPending(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
 }

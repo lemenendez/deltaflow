@@ -35,24 +35,22 @@ func (s *DeltaMemoryStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if delta.ID != "" {
+		return nil, deltaflow.ErrDeltaIDProvided
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now().UTC()
-	if delta.ID == "" {
-		for {
-			s.nextID++
-			candidate := deltaflow.DeltaID(fmt.Sprintf("delta-%d", s.nextID))
-			if _, exists := s.deltas[candidate]; exists {
-				continue
-			}
-			delta.ID = candidate
-			break
+	for {
+		s.nextID++
+		candidate := deltaflow.DeltaID(fmt.Sprintf("delta-%d", s.nextID))
+		if _, exists := s.deltas[candidate]; exists {
+			continue
 		}
-	}
-	if _, exists := s.deltas[delta.ID]; exists {
-		return nil, deltaflow.ErrDeltaAlreadyExists
+		delta.ID = candidate
+		break
 	}
 	if delta.State == "" {
 		delta.State = deltaflow.DeltaPending
@@ -94,7 +92,7 @@ func (s *DeltaMemoryStore) Get(ctx context.Context, deltaID deltaflow.DeltaID) (
 	return cloneDelta(delta), true, nil
 }
 
-func (s *DeltaMemoryStore) Pull(ctx context.Context, limit int) ([]*deltaflow.Delta, error) {
+func (s *DeltaMemoryStore) Pull(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.Delta, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -105,7 +103,7 @@ func (s *DeltaMemoryStore) Pull(ctx context.Context, limit int) ([]*deltaflow.De
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ids := s.pendingDeltaIDsLocked()
+	ids := s.pendingDeltaIDsLockedForSyncLocked(syncID)
 	if len(ids) > limit {
 		ids = ids[:limit]
 	}
@@ -164,6 +162,29 @@ func (s *DeltaMemoryStore) pendingDeltaIDsLocked() []deltaflow.DeltaID {
 	return ids
 }
 
+func (s *DeltaMemoryStore) pendingDeltaIDsLockedForSyncLocked(syncID deltaflow.SyncID) []deltaflow.DeltaID {
+	ids := make([]deltaflow.DeltaID, 0, len(s.deltas))
+	for id, delta := range s.deltas {
+		if delta.State == deltaflow.DeltaPending && delta.SyncID == syncID {
+			ids = append(ids, id)
+		}
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		left := s.deltas[ids[i]]
+		right := s.deltas[ids[j]]
+		if !left.OccurredAt.Equal(right.OccurredAt) {
+			return left.OccurredAt.Before(right.OccurredAt)
+		}
+		if !left.CreatedAt.Equal(right.CreatedAt) {
+			return left.CreatedAt.Before(right.CreatedAt)
+		}
+		return left.ID < right.ID
+	})
+
+	return ids
+}
+
 func cloneDelta(delta *deltaflow.Delta) *deltaflow.Delta {
 	if delta == nil {
 		return nil
@@ -197,6 +218,9 @@ func (s *JobMemoryStore) Create(ctx context.Context, job deltaflow.SyncJob) (*de
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if job.ID != "" {
+		return nil, deltaflow.ErrJobIDProvided
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -205,11 +229,6 @@ func (s *JobMemoryStore) Create(ctx context.Context, job deltaflow.SyncJob) (*de
 }
 
 func (s *JobMemoryStore) createLocked(job deltaflow.SyncJob, now time.Time) (*deltaflow.SyncJob, error) {
-	if job.ID != "" {
-		if _, exists := s.jobs[job.ID]; exists {
-			return nil, deltaflow.ErrJobAlreadyExists
-		}
-	}
 	if job.Origin == deltaflow.JobOriginOutbox && job.DeltaID == nil {
 		return nil, deltaflow.ErrOutboxJobNeedsDelta
 	}
@@ -271,7 +290,7 @@ func (s *JobMemoryStore) Get(ctx context.Context, jobID deltaflow.SyncJobID) (*d
 	return cloneSyncJob(job), true, nil
 }
 
-func (s *JobMemoryStore) ClaimNext(ctx context.Context, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
+func (s *JobMemoryStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -283,7 +302,7 @@ func (s *JobMemoryStore) ClaimNext(ctx context.Context, workerID string, lockFor
 	defer s.mu.Unlock()
 
 	now := s.now().UTC()
-	ids := s.claimableJobIDsLocked(now)
+	ids := s.claimableJobIDsLocked(now, syncID)
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -347,10 +366,10 @@ func (s *JobMemoryStore) update(ctx context.Context, jobID deltaflow.SyncJobID, 
 	return nil
 }
 
-func (s *JobMemoryStore) claimableJobIDsLocked(now time.Time) []deltaflow.SyncJobID {
+func (s *JobMemoryStore) claimableJobIDsLocked(now time.Time, syncID deltaflow.SyncID) []deltaflow.SyncJobID {
 	ids := make([]deltaflow.SyncJobID, 0, len(s.jobs))
 	for id, job := range s.jobs {
-		if claimableJob(job, now) {
+		if claimableJob(job, now, syncID) {
 			ids = append(ids, id)
 		}
 	}
@@ -370,7 +389,11 @@ func (s *JobMemoryStore) claimableJobIDsLocked(now time.Time) []deltaflow.SyncJo
 	return ids
 }
 
-func claimableJob(job *deltaflow.SyncJob, now time.Time) bool {
+func claimableJob(job *deltaflow.SyncJob, now time.Time, syncID deltaflow.SyncID) bool {
+	if job.SyncID != syncID {
+		return false
+	}
+
 	switch job.State {
 	case deltaflow.StatePending, deltaflow.StateRetrying:
 		return !job.AvailableAt.After(now)

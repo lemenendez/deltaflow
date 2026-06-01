@@ -8,23 +8,43 @@ import (
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
+type SyncWorkerConfig struct {
+	SyncID   deltaflow.SyncID
+	WorkerID string
+	LockFor  time.Duration
+	PullSize int
+}
+
+func (c SyncWorkerConfig) Validate() error {
+	if c.SyncID == "" {
+		return errors.New("sync worker config: sync_id is required")
+	}
+
+	return nil
+}
+
 type SyncWorker struct {
 	JobStore   deltaflow.JobStore
 	Dispatcher deltaflow.DispatchStore
 	Projector  deltaflow.Projector
 	Applier    deltaflow.ProjectionApplier
 
+	SyncID   deltaflow.SyncID
 	WorkerID string
 	LockFor  time.Duration
 	PullSize int
 }
 
 func (w *SyncWorker) RunOnce(ctx context.Context) error {
+	if err := w.validateRunOnceDependencies(); err != nil {
+		return err
+	}
+
 	if err := w.dispatchDeltas(ctx); err != nil {
 		return err
 	}
 
-	job, err := w.JobStore.ClaimNext(ctx, w.WorkerID, w.LockFor)
+	job, err := w.JobStore.ClaimNext(ctx, w.SyncID, w.WorkerID, w.LockFor)
 	if err != nil {
 		return err
 	}
@@ -70,7 +90,28 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	return w.JobStore.MarkSynced(ctx, job.ID, false)
 }
 
+func (w *SyncWorker) validateRunOnceDependencies() error {
+	if err := w.config().Validate(); err != nil {
+		return err
+	}
+	if w.JobStore == nil {
+		return errors.New("sync worker config: job_store is required")
+	}
+	if w.Projector == nil {
+		return errors.New("sync worker config: projector is required")
+	}
+	if w.Applier == nil {
+		return errors.New("sync worker config: applier is required")
+	}
+
+	return nil
+}
+
 func (w *SyncWorker) dispatchDeltas(ctx context.Context) error {
+	if err := w.config().Validate(); err != nil {
+		return err
+	}
+
 	pullSize := w.PullSize
 	if pullSize <= 0 {
 		pullSize = 1
@@ -78,8 +119,17 @@ func (w *SyncWorker) dispatchDeltas(ctx context.Context) error {
 	if w.Dispatcher == nil {
 		return nil
 	}
-	_, err := w.Dispatcher.DispatchPending(ctx, pullSize)
+	_, err := w.Dispatcher.DispatchPending(ctx, w.SyncID, pullSize)
 	return err
+}
+
+func (w *SyncWorker) config() SyncWorkerConfig {
+	return SyncWorkerConfig{
+		SyncID:   w.SyncID,
+		WorkerID: w.WorkerID,
+		LockFor:  w.LockFor,
+		PullSize: w.PullSize,
+	}
 }
 
 func (w *SyncWorker) failOrRetry(ctx context.Context, job *deltaflow.SyncJob, err error) error {
