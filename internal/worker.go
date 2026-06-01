@@ -86,6 +86,9 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	}
 
 	if err != nil {
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetry(ctx, job, heartbeatErr)
+		}
 		return w.failOrRetry(ctx, job, err)
 	}
 
