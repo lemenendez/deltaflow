@@ -21,13 +21,14 @@ v0.3.0   SQL schema + durable store implementation
          - durable DeltaStore + JobStore contracts
          - outbox/jobs split persists in SQL
          - canonical projection_key hashing
+         - baseline leases: claim with lock_for + timeout reclaim
+         - integration tests (container-backed postgres)
 
-v0.4.0   Postgres stores + leases
+v0.4.0   Postgres lease hardening + transactional app patterns
          - insert Deltas transactionally with application writes
-         - claim SyncJobs with FOR UPDATE SKIP LOCKED
-         - retry scheduling
-         - dead SyncJobs
-         - integration tests
+         - lease renewal/heartbeat semantics
+         - lease ownership checks on job state transitions
+         - advanced lease observability and operations
 
 v0.5.0   latest_state MVP
          - Projector.Project()

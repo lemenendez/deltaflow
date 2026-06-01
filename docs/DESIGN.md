@@ -909,6 +909,26 @@ failed attempt + attempts remain -> retrying
 failed attempt + no attempts left -> dead
 ```
 
+### 10.1 Lease Semantics
+
+DeltaFlow uses time-bound job leases for worker claims.
+
+Baseline lease behavior (v0.3 scope):
+
+```text
+- claim acquires lease by setting state=processing, locked_by, locked_until
+- claims use FOR UPDATE SKIP LOCKED to avoid double-claiming
+- expired leases are reclaimable after locked_until
+```
+
+Lease hardening (v0.4 scope):
+
+```text
+- add explicit lease renewal/heartbeat API
+- enforce lease ownership checks on MarkSynced/MarkRetrying/MarkDead
+- add tighter lease observability and operational controls
+```
+
 ---
 
 ## 11. Minimal YAML
