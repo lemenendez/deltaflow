@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +35,39 @@ func TestSyncWorkerRunOnceRejectsMissingSyncID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "sync_id is required") {
 		t.Fatalf("RunOnce error = %v, want sync_id validation failure", err)
+	}
+
+	if len(jobStore.jobs) != 0 {
+		t.Fatalf("job store mutated = %d jobs, want 0", len(jobStore.jobs))
+	}
+	if got := mustGetDelta(t, ctx, deltaStore, inserted.ID); got.State != deltaflow.DeltaPending {
+		t.Fatalf("delta state = %s, want %s", got.State, deltaflow.DeltaPending)
+	}
+}
+
+func TestSyncWorkerRunOnceRejectsMissingWorkerID(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	jobStore := NewJobMemoryStore()
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   jobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, jobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: recordApplier(nil, nil),
+		SyncID:  "sync",
+		LockFor: time.Minute,
+	}
+
+	err := worker.RunOnce(ctx)
+	if err == nil {
+		t.Fatal("RunOnce returned nil error, want validation failure")
+	}
+	if !strings.Contains(err.Error(), "worker_id is required") {
+		t.Fatalf("RunOnce error = %v, want worker_id validation failure", err)
 	}
 
 	if len(jobStore.jobs) != 0 {
@@ -384,6 +418,392 @@ func TestSyncWorkerProcessesManualJobWithoutDispatcher(t *testing.T) {
 	if len(applied) != 1 || applied[0].Type != deltaflow.ProjectionOpUpsert {
 		t.Fatalf("applied operations = %#v, want one upsert", applied)
 	}
+}
+
+func TestSyncWorkerRenewsLeaseDuringLongApply(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	baseJobStore := NewJobMemoryStore()
+	spyJobStore := newRenewLeaseSpyJobStore(baseJobStore)
+	enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   spyJobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, baseJobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			select {
+			case <-spyJobStore.firstRenewed():
+				time.Sleep(10 * time.Millisecond)
+				return nil
+			case <-time.After(500 * time.Millisecond):
+				return errors.New("timed out waiting for lease renewal")
+			}
+		}),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		LockFor:  20 * time.Millisecond,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	if spyJobStore.renewCount() < 1 {
+		t.Fatal("expected at least one lease renewal during apply")
+	}
+
+	jobs, err := baseJobStore.ClaimNext(ctx, "sync", "worker-2", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNext after sync returned error: %v", err)
+	}
+	if jobs != nil {
+		t.Fatalf("ClaimNext returned %v, want nil because job should be synced", jobs.ID)
+	}
+}
+
+func TestSyncWorkerRetriesWhenLeaseHeartbeatFails(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	baseJobStore := NewJobMemoryStore()
+	spyJobStore := newRenewLeaseSpyJobStoreWithError(baseJobStore, errors.New("renew failed"))
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   spyJobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, baseJobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			select {
+			case <-spyJobStore.firstRenewed():
+				time.Sleep(10 * time.Millisecond)
+				return nil
+			case <-time.After(time.Second):
+				return errors.New("timed out waiting for heartbeat failure")
+			}
+		}),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		LockFor:  300 * time.Millisecond,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	got := mustGetJobByDelta(t, ctx, baseJobStore, inserted.ID)
+	if got.State != deltaflow.StateRetrying {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.StateRetrying)
+	}
+	if got.AttemptCount != 1 {
+		t.Fatalf("attempt_count = %d, want 1", got.AttemptCount)
+	}
+	if got.LastError == nil || !strings.Contains(*got.LastError, "lease renewal failed") {
+		t.Fatalf("last_error = %v, want lease renewal failure message", got.LastError)
+	}
+}
+
+func TestSyncWorkerCancelsJobContextWhenLeaseHeartbeatFails(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	baseJobStore := NewJobMemoryStore()
+	spyJobStore := newRenewLeaseSpyJobStoreWithError(baseJobStore, errors.New("renew failed"))
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   spyJobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, baseJobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			select {
+			case <-spyJobStore.firstRenewed():
+			case <-time.After(time.Second):
+				return errors.New("timed out waiting for heartbeat attempt")
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+				return errors.New("job context was not canceled after heartbeat failure")
+			}
+		}),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		LockFor:  300 * time.Millisecond,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	got := mustGetJobByDelta(t, ctx, baseJobStore, inserted.ID)
+	if got.State != deltaflow.StateRetrying {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.StateRetrying)
+	}
+	if got.AttemptCount != 1 {
+		t.Fatalf("attempt_count = %d, want 1", got.AttemptCount)
+	}
+	if got.LastError == nil {
+		t.Fatal("last_error is nil, want cancellation-related failure")
+	}
+}
+
+func TestSyncWorkerPrefersHeartbeatErrorWhenApplyReturnsContextCanceled(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	baseJobStore := NewJobMemoryStore()
+	spyJobStore := newRenewLeaseSpyJobStoreWithError(baseJobStore, errors.New("renew failed"))
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   spyJobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, baseJobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			select {
+			case <-spyJobStore.firstRenewed():
+			case <-time.After(time.Second):
+				return errors.New("timed out waiting for heartbeat attempt")
+			}
+
+			<-ctx.Done()
+			return ctx.Err()
+		}),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		LockFor:  300 * time.Millisecond,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	got := mustGetJobByDelta(t, ctx, baseJobStore, inserted.ID)
+	if got.State != deltaflow.StateRetrying {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.StateRetrying)
+	}
+	if got.AttemptCount != 1 {
+		t.Fatalf("attempt_count = %d, want 1", got.AttemptCount)
+	}
+	if got.LastError == nil || !strings.Contains(*got.LastError, "lease renewal failed") {
+		t.Fatalf("last_error = %v, want lease renewal failure message", got.LastError)
+	}
+}
+
+func TestSyncWorkerPrefersHeartbeatErrorWhenDeleteApplyReturnsContextCanceled(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	baseJobStore := NewJobMemoryStore()
+	spyJobStore := newRenewLeaseSpyJobStoreWithError(baseJobStore, errors.New("renew failed"))
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   spyJobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, baseJobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{}, deltaflow.ErrProjectionNotFound
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			if op.Type != deltaflow.ProjectionOpDelete {
+				return errors.New("expected delete operation")
+			}
+
+			select {
+			case <-spyJobStore.firstRenewed():
+			case <-time.After(time.Second):
+				return errors.New("timed out waiting for heartbeat attempt")
+			}
+
+			<-ctx.Done()
+			return ctx.Err()
+		}),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		LockFor:  300 * time.Millisecond,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	got := mustGetJobByDelta(t, ctx, baseJobStore, inserted.ID)
+	if got.State != deltaflow.StateRetrying {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.StateRetrying)
+	}
+	if got.AttemptCount != 1 {
+		t.Fatalf("attempt_count = %d, want 1", got.AttemptCount)
+	}
+	if got.LastError == nil || !strings.Contains(*got.LastError, "lease renewal failed") {
+		t.Fatalf("last_error = %v, want lease renewal failure message", got.LastError)
+	}
+}
+
+func TestSyncWorkerPrefersHeartbeatErrorWhenProjectReturnsContextCanceled(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	baseJobStore := NewJobMemoryStore()
+	spyJobStore := newRenewLeaseSpyJobStoreWithError(baseJobStore, errors.New("renew failed"))
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+
+	worker := SyncWorker{
+		JobStore:   spyJobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, baseJobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			select {
+			case <-spyJobStore.firstRenewed():
+			case <-time.After(time.Second):
+				return deltaflow.Projection{}, errors.New("timed out waiting for heartbeat attempt")
+			}
+
+			<-ctx.Done()
+			return deltaflow.Projection{}, ctx.Err()
+		}),
+		Applier:  recordApplier(nil, nil),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		LockFor:  300 * time.Millisecond,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	got := mustGetJobByDelta(t, ctx, baseJobStore, inserted.ID)
+	if got.State != deltaflow.StateRetrying {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.StateRetrying)
+	}
+	if got.AttemptCount != 1 {
+		t.Fatalf("attempt_count = %d, want 1", got.AttemptCount)
+	}
+	if got.LastError == nil || !strings.Contains(*got.LastError, "lease renewal failed") {
+		t.Fatalf("last_error = %v, want lease renewal failure message", got.LastError)
+	}
+}
+
+func TestSyncWorkerMarksDeadWhenLeaseHeartbeatFailsAtLastAttempt(t *testing.T) {
+	ctx := context.Background()
+	deltaStore := NewDeltaMemoryStore()
+	baseJobStore := NewJobMemoryStore()
+	spyJobStore := newRenewLeaseSpyJobStoreWithError(baseJobStore, errors.New("renew failed"))
+	inserted := enqueueTestDelta(t, ctx, deltaStore, deltaflow.Delta{})
+	job := seedJobForDelta(t, ctx, baseJobStore, inserted.ID, 4, 5)
+	if err := deltaStore.MarkDispatched(ctx, inserted.ID); err != nil {
+		t.Fatalf("MarkDispatched returned error: %v", err)
+	}
+
+	worker := SyncWorker{
+		JobStore:   spyJobStore,
+		Dispatcher: NewMemoryDispatchStore(deltaStore, baseJobStore, nil),
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			select {
+			case <-spyJobStore.firstRenewed():
+				time.Sleep(10 * time.Millisecond)
+				return nil
+			case <-time.After(time.Second):
+				return errors.New("timed out waiting for heartbeat failure")
+			}
+		}),
+		SyncID:   "sync",
+		WorkerID: "worker-1",
+		LockFor:  300 * time.Millisecond,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	got := mustGetJob(t, ctx, baseJobStore, job.ID)
+	if got.State != deltaflow.StateDead {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.StateDead)
+	}
+	if got.AttemptCount != 5 {
+		t.Fatalf("attempt_count = %d, want 5", got.AttemptCount)
+	}
+	if got.DeadAt == nil {
+		t.Fatal("dead_at is nil")
+	}
+	if got.LastError == nil || !strings.Contains(*got.LastError, "lease renewal failed") {
+		t.Fatalf("last_error = %v, want lease renewal failure message", got.LastError)
+	}
+}
+
+type renewLeaseSpyJobStore struct {
+	inner        deltaflow.JobStore
+	mu           sync.Mutex
+	renewedCount int
+	renewErr     error
+	renewedCh    chan struct{}
+	renewedOnce  sync.Once
+}
+
+func newRenewLeaseSpyJobStore(inner deltaflow.JobStore) *renewLeaseSpyJobStore {
+	return &renewLeaseSpyJobStore{
+		inner:     inner,
+		renewedCh: make(chan struct{}),
+	}
+}
+
+func newRenewLeaseSpyJobStoreWithError(inner deltaflow.JobStore, renewErr error) *renewLeaseSpyJobStore {
+	store := newRenewLeaseSpyJobStore(inner)
+	store.renewErr = renewErr
+	return store
+}
+
+func (s *renewLeaseSpyJobStore) Create(ctx context.Context, job deltaflow.SyncJob) (*deltaflow.SyncJob, error) {
+	return s.inner.Create(ctx, job)
+}
+
+func (s *renewLeaseSpyJobStore) Get(ctx context.Context, jobID deltaflow.SyncJobID) (*deltaflow.SyncJob, bool, error) {
+	return s.inner.Get(ctx, jobID)
+}
+
+func (s *renewLeaseSpyJobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
+	return s.inner.ClaimNext(ctx, syncID, workerID, lockFor)
+}
+
+func (s *renewLeaseSpyJobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
+	s.mu.Lock()
+	s.renewedCount++
+	s.mu.Unlock()
+	s.renewedOnce.Do(func() { close(s.renewedCh) })
+	if s.renewErr != nil {
+		return s.renewErr
+	}
+	return s.inner.RenewLease(ctx, jobID, workerID, lockFor)
+}
+
+func (s *renewLeaseSpyJobStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, ghostDetected bool) error {
+	return s.inner.MarkSynced(ctx, jobID, workerID, ghostDetected)
+}
+
+func (s *renewLeaseSpyJobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
+	return s.inner.MarkRetrying(ctx, jobID, workerID, err, nextRunAt)
+}
+
+func (s *renewLeaseSpyJobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
+	return s.inner.MarkDead(ctx, jobID, workerID, err)
+}
+
+func (s *renewLeaseSpyJobStore) firstRenewed() <-chan struct{} {
+	return s.renewedCh
+}
+
+func (s *renewLeaseSpyJobStore) renewCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.renewedCount
 }
 
 func enqueueTestDelta(t *testing.T, ctx context.Context, store *DeltaMemoryStore, delta deltaflow.Delta) *deltaflow.Delta {

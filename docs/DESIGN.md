@@ -482,6 +482,27 @@ The SyncWorker should be boring.
 
 Boring ships.
 
+Lease renewal failure behavior (short version):
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant H as Heartbeat
+    participant S as JobStore
+    participant A as Applier
+    H->>S: RenewLease
+    S-->>H: error
+    H->>W: cancel(jobCtx) + report lease error
+    A-->>W: context canceled
+    W->>W: prefer lease error for retry/dead
+```
+
+If lease renewal fails, the worker cancels in-flight work immediately so it
+does not continue without ownership. If `Apply` returns `context.Canceled`
+because of that cancellation, the worker records the lease renewal error as the
+real failure cause. The same precedence applies when `Project` returns early
+with `context.Canceled` after heartbeat-triggered cancellation.
+
 ---
 
 ### 3.12 Delta Ghost
@@ -962,8 +983,8 @@ Baseline lease behavior (v0.3 scope):
 Lease hardening (v0.4 scope):
 
 ```text
-- add explicit lease renewal/heartbeat API
-- enforce lease ownership checks on MarkSynced/MarkRetrying/MarkDead
+- add explicit lease renewal/heartbeat API (`RenewLease` while processing)
+- enforce lease ownership checks on MarkSynced/MarkRetrying/MarkDead using worker_id + active lease
 - add tighter lease observability and operational controls
 ```
 

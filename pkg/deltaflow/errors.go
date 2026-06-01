@@ -11,6 +11,8 @@ var (
 	ErrJobNotFound = errors.New("job not found")
 	// Returned by JobStore.ClaimNext when lockFor is zero or negative.
 	ErrInvalidLockFor = errors.New("lock duration must be positive")
+	// Returned by JobStore lease mutators when the caller no longer owns the lease.
+	ErrJobLeaseNotOwned = errors.New("job lease not owned")
 	// Returned by DeltaStore.Enqueue when callers provide a non-empty Delta.ID.
 	ErrDeltaIDProvided = errors.New("delta id must be empty")
 	// Returned by JobStore.Create when an outbox job omits DeltaID.

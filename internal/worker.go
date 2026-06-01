@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -18,6 +19,9 @@ type SyncWorkerConfig struct {
 func (c SyncWorkerConfig) Validate() error {
 	if c.SyncID == "" {
 		return errors.New("sync worker config: sync_id is required")
+	}
+	if c.WorkerID == "" {
+		return errors.New("sync worker config: worker_id is required")
 	}
 
 	return nil
@@ -53,12 +57,17 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		return nil
 	}
 
+	jobCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	heartbeatErrCh := make(chan error, 1)
+	go w.heartbeatLease(jobCtx, cancel, job.ID, heartbeatErrCh)
+
 	identity := deltaflow.ProjectionIdentity{
 		Type: job.ProjectionType,
 		Key:  job.ProjectionKey,
 	}
 
-	projection, err := w.Projector.Project(ctx, identity)
+	projection, err := w.Projector.Project(jobCtx, identity)
 
 	if errors.Is(err, deltaflow.ErrProjectionNotFound) {
 		op := deltaflow.ProjectionOperation{
@@ -66,14 +75,23 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 			Identity: identity,
 		}
 
-		if applyErr := w.Applier.Apply(ctx, op); applyErr != nil {
+		if applyErr := w.Applier.Apply(jobCtx, op); applyErr != nil {
+			if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+				return w.failOrRetry(ctx, job, heartbeatErr)
+			}
 			return w.failOrRetry(ctx, job, applyErr)
 		}
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetry(ctx, job, heartbeatErr)
+		}
 
-		return w.JobStore.MarkSynced(ctx, job.ID, true)
+		return w.JobStore.MarkSynced(ctx, job.ID, w.WorkerID, true)
 	}
 
 	if err != nil {
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetry(ctx, job, heartbeatErr)
+		}
 		return w.failOrRetry(ctx, job, err)
 	}
 
@@ -83,11 +101,17 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		Projection: &projection,
 	}
 
-	if err := w.Applier.Apply(ctx, op); err != nil {
+	if err := w.Applier.Apply(jobCtx, op); err != nil {
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetry(ctx, job, heartbeatErr)
+		}
 		return w.failOrRetry(ctx, job, err)
 	}
+	if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+		return w.failOrRetry(ctx, job, heartbeatErr)
+	}
 
-	return w.JobStore.MarkSynced(ctx, job.ID, false)
+	return w.JobStore.MarkSynced(ctx, job.ID, w.WorkerID, false)
 }
 
 func (w *SyncWorker) validateRunOnceDependencies() error {
@@ -136,11 +160,49 @@ func (w *SyncWorker) failOrRetry(ctx context.Context, job *deltaflow.SyncJob, er
 	nextAttempt := job.AttemptCount + 1
 
 	if nextAttempt >= job.MaxAttempts {
-		return w.JobStore.MarkDead(ctx, job.ID, err)
+		return w.JobStore.MarkDead(ctx, job.ID, w.WorkerID, err)
 	}
 
 	nextRunAt := time.Now().UTC().Add(backoff(nextAttempt))
-	return w.JobStore.MarkRetrying(ctx, job.ID, err, nextRunAt)
+	return w.JobStore.MarkRetrying(ctx, job.ID, w.WorkerID, err, nextRunAt)
+}
+
+func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFunc, jobID deltaflow.SyncJobID, errCh chan<- error) {
+	interval := w.LockFor / 2
+	if interval <= 0 {
+		interval = w.LockFor
+	}
+	if interval <= 0 {
+		interval = 100 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.JobStore.RenewLease(ctx, jobID, w.WorkerID, w.LockFor); err != nil {
+				select {
+				case errCh <- fmt.Errorf("lease renewal failed: %w", err):
+				default:
+				}
+				// Publish the lease failure first, then stop in-flight work.
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+func (w *SyncWorker) tryHeartbeatError(errCh <-chan error) error {
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		return nil
+	}
 }
 
 func backoff(attempt int) time.Duration {

@@ -127,11 +127,13 @@ type JobStore interface {
 
 	ClaimNext(ctx context.Context, syncID SyncID, workerID string, lockFor time.Duration) (*SyncJob, error)
 
-	MarkSynced(ctx context.Context, jobID SyncJobID, ghostDetected bool) error
+	RenewLease(ctx context.Context, jobID SyncJobID, workerID string, lockFor time.Duration) error
 
-	MarkRetrying(ctx context.Context, jobID SyncJobID, err error, nextRunAt time.Time) error
+	MarkSynced(ctx context.Context, jobID SyncJobID, workerID string, ghostDetected bool) error
 
-	MarkDead(ctx context.Context, jobID SyncJobID, err error) error
+	MarkRetrying(ctx context.Context, jobID SyncJobID, workerID string, err error, nextRunAt time.Time) error
+
+	MarkDead(ctx context.Context, jobID SyncJobID, workerID string, err error) error
 }
 
 type DispatchStore interface {

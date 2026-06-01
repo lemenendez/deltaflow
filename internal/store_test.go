@@ -397,6 +397,100 @@ func TestJobMemoryStoreClaimNextRespectsAvailabilityAndLease(t *testing.T) {
 	}
 }
 
+func TestJobMemoryStoreRenewLeaseAndOwnershipChecks(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	job, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	claimed, err := store.ClaimNext(ctx, "sync", "worker-1", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNext returned error: %v", err)
+	}
+	if claimed == nil {
+		t.Fatal("ClaimNext returned nil")
+	}
+
+	if err := store.RenewLease(ctx, job.ID, "worker-1", 2*time.Minute); err != nil {
+		t.Fatalf("RenewLease returned error: %v", err)
+	}
+	got, ok, err := store.Get(ctx, job.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get after renew = ok=%v err=%v", ok, err)
+	}
+	if got.LockedUntil == nil || !got.LockedUntil.Equal(now.Add(2*time.Minute)) {
+		t.Fatalf("locked_until = %v, want %v", got.LockedUntil, now.Add(2*time.Minute))
+	}
+
+	if err := store.MarkSynced(ctx, job.ID, "worker-2", false); !errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		t.Fatalf("MarkSynced wrong owner error = %v, want %v", err, deltaflow.ErrJobLeaseNotOwned)
+	}
+
+	now = now.Add(3 * time.Minute)
+	if err := store.RenewLease(ctx, job.ID, "worker-1", 2*time.Minute); !errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		t.Fatalf("RenewLease after expiry error = %v, want %v", err, deltaflow.ErrJobLeaseNotOwned)
+	}
+}
+
+func TestJobMemoryStoreRenewLeaseUsesSingleNowForOwnershipAndUpdate(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	base := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+
+	jobID := deltaflow.SyncJobID("job-1")
+	lockedBy := "worker-1"
+	lockedUntil := base.Add(time.Millisecond)
+	store.jobs[jobID] = &deltaflow.SyncJob{
+		ID:          jobID,
+		SyncID:      "sync",
+		Origin:      deltaflow.JobOriginManual,
+		State:       deltaflow.StateProcessing,
+		LockedBy:    &lockedBy,
+		LockedUntil: &lockedUntil,
+		UpdatedAt:   base,
+	}
+
+	callCount := 0
+	store.now = func() time.Time {
+		callCount++
+		if callCount == 1 {
+			return base
+		}
+		return base.Add(2 * time.Millisecond)
+	}
+
+	if err := store.RenewLease(ctx, jobID, lockedBy, time.Minute); err != nil {
+		t.Fatalf("RenewLease returned error: %v", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("now() call count = %d, want 1", callCount)
+	}
+
+	got, ok, err := store.Get(ctx, jobID)
+	if err != nil || !ok {
+		t.Fatalf("Get after renew = ok=%v err=%v", ok, err)
+	}
+	wantLockedUntil := base.Add(time.Minute)
+	if got.LockedUntil == nil || !got.LockedUntil.Equal(wantLockedUntil) {
+		t.Fatalf("locked_until = %v, want %v", got.LockedUntil, wantLockedUntil)
+	}
+	if !got.UpdatedAt.Equal(base) {
+		t.Fatalf("updated_at = %v, want %v", got.UpdatedAt, base)
+	}
+}
+
 func TestJobMemoryStoreCreateRejectsOutboxJobWithoutDeltaID(t *testing.T) {
 	ctx := context.Background()
 	store := NewJobMemoryStore()

@@ -291,7 +291,7 @@ func TestPostgresContainer_ClaimRetryAndReclaimLease(t *testing.T) {
 	}
 
 	nextRun := time.Now().UTC().Add(-1 * time.Second)
-	if err := jobStore.MarkRetrying(ctx, created.ID, errors.New("transient"), nextRun); err != nil {
+	if err := jobStore.MarkRetrying(ctx, created.ID, "worker-1", errors.New("transient"), nextRun); err != nil {
 		t.Fatalf("mark retrying: %v", err)
 	}
 
@@ -307,5 +307,43 @@ func TestPostgresContainer_ClaimRetryAndReclaimLease(t *testing.T) {
 	}
 	if reclaimed.LockedBy == nil || *reclaimed.LockedBy != "worker-3" {
 		t.Fatalf("locked_by = %v, want worker-3", reclaimed.LockedBy)
+	}
+}
+
+func TestPostgresContainer_RenewLeaseAndOwnershipChecks(t *testing.T) {
+	ctx, _, _, jobStore, _ := withPostgresStores(t)
+
+	created, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         syncA,
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey:  contactKey("10"),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	claimed, err := jobStore.ClaimNext(ctx, syncA, "worker-1", time.Minute)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if claimed == nil {
+		t.Fatal("claim returned nil")
+	}
+
+	if err := jobStore.RenewLease(ctx, created.ID, "worker-1", 2*time.Minute); err != nil {
+		t.Fatalf("renew lease: %v", err)
+	}
+
+	if err := jobStore.MarkSynced(ctx, created.ID, "worker-2", false); !errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		t.Fatalf("MarkSynced wrong owner error = %v, want %v", err, deltaflow.ErrJobLeaseNotOwned)
+	}
+
+	if err := jobStore.MarkRetrying(ctx, created.ID, "worker-1", errors.New("transient"), time.Now().UTC().Add(time.Minute)); err != nil {
+		t.Fatalf("MarkRetrying owner error: %v", err)
+	}
+
+	if err := jobStore.RenewLease(ctx, created.ID, "worker-1", time.Minute); !errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		t.Fatalf("RenewLease after retrying error = %v, want %v", err, deltaflow.ErrJobLeaseNotOwned)
 	}
 }
