@@ -57,7 +57,7 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	jobCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	heartbeatErrCh := make(chan error, 1)
-	go w.heartbeatLease(jobCtx, job.ID, heartbeatErrCh)
+	go w.heartbeatLease(jobCtx, cancel, job.ID, heartbeatErrCh)
 
 	identity := deltaflow.ProjectionIdentity{
 		Type: job.ProjectionType,
@@ -155,7 +155,7 @@ func (w *SyncWorker) failOrRetry(ctx context.Context, job *deltaflow.SyncJob, er
 	return w.JobStore.MarkRetrying(ctx, job.ID, w.WorkerID, err, nextRunAt)
 }
 
-func (w *SyncWorker) heartbeatLease(ctx context.Context, jobID deltaflow.SyncJobID, errCh chan<- error) {
+func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFunc, jobID deltaflow.SyncJobID, errCh chan<- error) {
 	interval := w.LockFor / 2
 	if interval <= 0 {
 		interval = w.LockFor
@@ -172,6 +172,8 @@ func (w *SyncWorker) heartbeatLease(ctx context.Context, jobID deltaflow.SyncJob
 			return
 		case <-ticker.C:
 			if err := w.JobStore.RenewLease(ctx, jobID, w.WorkerID, w.LockFor); err != nil {
+				// Stop projector/applier work immediately once lease renewal fails.
+				cancel()
 				select {
 				case errCh <- fmt.Errorf("lease renewal failed: %w", err):
 				default:

@@ -372,11 +372,11 @@ func (s *JobMemoryStore) updateOwned(ctx context.Context, jobID deltaflow.SyncJo
 	if !ok {
 		return deltaflow.ErrJobNotFound
 	}
-	if !jobLeaseOwned(job, s.now().UTC(), workerID) {
+	now := s.now().UTC()
+	if !jobLeaseOwned(job, now, workerID) {
 		return deltaflow.ErrJobLeaseNotOwned
 	}
 
-	now := s.now().UTC()
 	fn(job, now)
 	job.UpdatedAt = now
 
