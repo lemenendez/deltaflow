@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -234,6 +235,12 @@ func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, worke
 		return nil, err
 	}
 	if lockFor <= 0 {
+		s.LeaseTelemetry().ObserveLeaseClaim("invalid_lock_for")
+		s.logLease("lease_claim_rejected",
+			"sync_id", syncID,
+			"worker_id", workerID,
+			"reason", "invalid_lock_for",
+		)
 		return nil, deltaflow.ErrInvalidLockFor
 	}
 
@@ -292,11 +299,33 @@ RETURNING
 
 	job, ok, err := s.ScanSyncJob(row)
 	if err != nil {
+		s.LeaseTelemetry().ObserveLeaseClaim("error")
+		s.logLease("lease_claim_failed",
+			"sync_id", syncID,
+			"worker_id", workerID,
+			"reason", err.Error(),
+		)
 		return nil, err
 	}
 	if !ok {
+		s.LeaseTelemetry().ObserveLeaseClaim("empty")
+		s.logLease("lease_claim_empty",
+			"sync_id", syncID,
+			"worker_id", workerID,
+		)
 		return nil, nil
 	}
+	s.LeaseTelemetry().ObserveLeaseClaim("success")
+	s.logLease("lease_claimed",
+		"sync_id", syncID,
+		"job_id", job.ID,
+		"worker_id", workerID,
+		"state", job.State,
+		"attempt_count", job.AttemptCount,
+		"locked_until", job.LockedUntil,
+		"lease_ms_remaining", int64(lockFor/time.Millisecond),
+		"reason", "ready_or_reclaimed",
+	)
 	return job, nil
 }
 
@@ -305,12 +334,19 @@ func (s *JobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, wo
 		return err
 	}
 	if lockFor <= 0 {
+		s.LeaseTelemetry().ObserveLeaseRenew("invalid_lock_for", 0)
+		s.logLease("lease_renew_rejected",
+			"job_id", jobID,
+			"worker_id", workerID,
+			"reason", "invalid_lock_for",
+		)
 		return deltaflow.ErrInvalidLockFor
 	}
 
 	now := s.Now()
 	lockedUntil := now.Add(lockFor)
-	return s.update(ctx, jobID, `
+	start := time.Now()
+	err := s.update(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	locked_until = $2,
@@ -319,10 +355,31 @@ WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $4
 	AND locked_until > $3`, lockedUntil, now, workerID)
+	result := leaseResult(err)
+	s.LeaseTelemetry().ObserveLeaseRenew(result, time.Since(start))
+	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck("renew_lease", "rejected")
+	}
+	if err != nil {
+		s.logLease("lease_renew_failed",
+			"job_id", jobID,
+			"worker_id", workerID,
+			"reason", result,
+		)
+		return err
+	}
+	s.LeaseTelemetry().ObserveLeaseOwnershipCheck("renew_lease", "owned")
+	s.logLease("lease_renewed",
+		"job_id", jobID,
+		"worker_id", workerID,
+		"locked_until", lockedUntil,
+		"lease_ms_remaining", int64(lockFor/time.Millisecond),
+	)
+	return nil
 }
 
 func (s *JobStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, ghostDetected bool) error {
-	return s.update(ctx, jobID, `
+	err := s.update(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	state = 'synced',
@@ -335,12 +392,29 @@ WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $4
 	AND locked_until > $3`, ghostDetected, s.Now(), workerID)
+	s.observeOwnershipResult("mark_synced", err)
+	if err != nil {
+		s.logLease("lease_transition_rejected",
+			"transition", "mark_synced",
+			"job_id", jobID,
+			"worker_id", workerID,
+			"reason", leaseResult(err),
+		)
+		return err
+	}
+	s.logLease("lease_transition_applied",
+		"transition", "mark_synced",
+		"job_id", jobID,
+		"worker_id", workerID,
+		"state", deltaflow.StateSynced,
+	)
+	return nil
 }
 
 func (s *JobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
 	now := s.Now()
 	msg := connectors.ErrorMessage(err)
-	return s.update(ctx, jobID, `
+	updateErr := s.update(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	state = 'retrying',
@@ -354,12 +428,30 @@ WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $5
 	AND locked_until > $4`, msg, nextRunAt.UTC(), now, workerID)
+	s.observeOwnershipResult("mark_retrying", updateErr)
+	if updateErr != nil {
+		s.logLease("lease_transition_rejected",
+			"transition", "mark_retrying",
+			"job_id", jobID,
+			"worker_id", workerID,
+			"reason", leaseResult(updateErr),
+		)
+		return updateErr
+	}
+	s.logLease("lease_transition_applied",
+		"transition", "mark_retrying",
+		"job_id", jobID,
+		"worker_id", workerID,
+		"state", deltaflow.StateRetrying,
+		"reason", msg,
+	)
+	return nil
 }
 
 func (s *JobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
 	now := s.Now()
 	msg := connectors.ErrorMessage(err)
-	return s.update(ctx, jobID, `
+	updateErr := s.update(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	state = 'dead',
@@ -373,6 +465,24 @@ WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $4
 	AND locked_until > $3`, msg, now, workerID)
+	s.observeOwnershipResult("mark_dead", updateErr)
+	if updateErr != nil {
+		s.logLease("lease_transition_rejected",
+			"transition", "mark_dead",
+			"job_id", jobID,
+			"worker_id", workerID,
+			"reason", leaseResult(updateErr),
+		)
+		return updateErr
+	}
+	s.logLease("lease_transition_applied",
+		"transition", "mark_dead",
+		"job_id", jobID,
+		"worker_id", workerID,
+		"state", deltaflow.StateDead,
+		"reason", msg,
+	)
+	return nil
 }
 
 func (s *JobStore) update(ctx context.Context, jobID deltaflow.SyncJobID, query string, args ...any) error {
@@ -430,4 +540,41 @@ func isOutboxDeltaMappedViolation(err error) bool {
 	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "deltaflow_sync_jobs_outbox_delta_unique")
+}
+
+func (s *JobStore) observeOwnershipResult(transition string, err error) {
+	if err == nil {
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, "owned")
+		return
+	}
+	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, "rejected")
+	}
+}
+
+func (s *JobStore) logLease(event string, attrs ...any) {
+	logger := s.LeaseLogger()
+	if logger == nil {
+		return
+	}
+	eventAttrs := make([]any, 0, len(attrs)+2)
+	eventAttrs = append(eventAttrs, "event", event)
+	eventAttrs = append(eventAttrs, attrs...)
+	logger.Info("lease event", eventAttrs...)
+}
+
+func leaseResult(err error) string {
+	if err == nil {
+		return "success"
+	}
+	if errors.Is(err, deltaflow.ErrJobNotFound) {
+		return "job_not_found"
+	}
+	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		return "lease_not_owned"
+	}
+	if errors.Is(err, deltaflow.ErrInvalidLockFor) {
+		return "invalid_lock_for"
+	}
+	return "error"
 }

@@ -28,7 +28,7 @@ v0.4.0   Postgres lease hardening + transactional app patterns
          - insert Deltas transactionally with application writes
          - lease renewal/heartbeat semantics
          - lease ownership checks on job state transitions
-         - advanced lease observability and operations
+         - advanced lease observability and operations (slog-first + Prometheus-compatible telemetry)
          - playground for concurrent workload simulation (writers + workers)
 
 v0.5.0   latest_state MVP

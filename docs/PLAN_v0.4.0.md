@@ -10,6 +10,23 @@ Goal: Postgres lease hardening + transactional app patterns.
 - [ ] Advanced lease observability and operations.
 - [ ] Add new playground for concurrent workload simulation (writers + workers).
 
+## Advanced Lease Observability and Operations (v0.4 Definition)
+
+Telemetry stance for this milestone:
+
+- Use structured logs with Go `log/slog` as the primary signal path.
+- Emit low-cardinality counters/timers through a small telemetry interface so Prometheus exporters can be plugged in cleanly.
+- Keep concrete Prometheus/Grafana packaging lightweight in v0.4 and expand in v0.9 metrics/logs hardening.
+
+Scope checklist:
+
+- [ ] Add lease lifecycle structured log events: claim, renew, renew_failed, ownership_rejected, lease_expired_reclaimed.
+- [ ] Standardize lease log fields: sync_id, job_id, worker_id, state, attempt_count, locked_until, lease_ms_remaining, reason.
+- [ ] Add telemetry counters/timers for lease claim/renew/ownership rejection/reclaim outcomes.
+- [ ] Add operational queries/helpers for: active leases, expired processing leases, near-expiry leases.
+- [ ] Add safe operator actions for expired leases (force-release/requeue with explicit audit reason).
+- [ ] Add a short runbook: worker crash, heartbeat failures, elevated ownership conflicts.
+
 ## New Playground (Proposed)
 
 - Name: playground/03-concurrency-load

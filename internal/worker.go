@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -32,6 +33,8 @@ type SyncWorker struct {
 	Dispatcher deltaflow.DispatchStore
 	Projector  deltaflow.Projector
 	Applier    deltaflow.ProjectionApplier
+	Logger     *slog.Logger
+	Telemetry  deltaflow.LeaseTelemetry
 
 	SyncID   deltaflow.SyncID
 	WorkerID string
@@ -54,8 +57,20 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	}
 
 	if job == nil {
+		w.logLease("worker_claim_empty",
+			"sync_id", w.SyncID,
+			"worker_id", w.WorkerID,
+		)
 		return nil
 	}
+	w.logLease("worker_claimed",
+		"sync_id", w.SyncID,
+		"job_id", job.ID,
+		"worker_id", w.WorkerID,
+		"state", job.State,
+		"attempt_count", job.AttemptCount,
+		"locked_until", job.LockedUntil,
+	)
 
 	jobCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -181,9 +196,18 @@ func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFu
 	for {
 		select {
 		case <-ctx.Done():
+			w.logLease("worker_heartbeat_stopped",
+				"job_id", jobID,
+				"worker_id", w.WorkerID,
+			)
 			return
 		case <-ticker.C:
 			if err := w.JobStore.RenewLease(ctx, jobID, w.WorkerID, w.LockFor); err != nil {
+				w.logLease("worker_heartbeat_renew_failed",
+					"job_id", jobID,
+					"worker_id", w.WorkerID,
+					"reason", err.Error(),
+				)
 				select {
 				case errCh <- fmt.Errorf("lease renewal failed: %w", err):
 				default:
@@ -216,4 +240,14 @@ func backoff(attempt int) time.Duration {
 	default:
 		return 5 * time.Minute
 	}
+}
+
+func (w *SyncWorker) logLease(event string, attrs ...any) {
+	if w.Logger == nil {
+		return
+	}
+	eventAttrs := make([]any, 0, len(attrs)+2)
+	eventAttrs = append(eventAttrs, "event", event)
+	eventAttrs = append(eventAttrs, attrs...)
+	w.Logger.Info("lease event", eventAttrs...)
 }

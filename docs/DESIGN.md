@@ -986,6 +986,9 @@ Lease hardening (v0.4 scope):
 - add explicit lease renewal/heartbeat API (`RenewLease` while processing)
 - enforce lease ownership checks on MarkSynced/MarkRetrying/MarkDead using worker_id + active lease
 - add tighter lease observability and operational controls
+    - structured lease lifecycle logs via Go log/slog
+    - low-cardinality lease counters/timers via telemetry interface (Prometheus-compatible)
+    - operational visibility/actions for active, expired, and near-expiry leases
 ```
 
 ---
