@@ -38,6 +38,7 @@ func withStores(t *testing.T) (context.Context, deltaflow.DeltaStore, deltaflow.
 	db, cleanup := provider.Open(ctx, t)
 	t.Cleanup(cleanup)
 
+	ensureApplicationWritesTable(t, ctx, db)
 	truncateAll(t, ctx, db)
 
 	deltaStore := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
@@ -47,9 +48,40 @@ func withStores(t *testing.T) (context.Context, deltaflow.DeltaStore, deltaflow.
 	return ctx, deltaStore, jobStore, dispatchStore
 }
 
+func withPostgresStores(t *testing.T) (context.Context, *sql.DB, *pgstore.DeltaStore, *pgstore.JobStore, *pgstore.DispatchStore) {
+	t.Helper()
+	requireContainerIntegration(t)
+
+	ctx := context.Background()
+	provider := testenv.NewFromEnv(t)
+	db, cleanup := provider.Open(ctx, t)
+	t.Cleanup(cleanup)
+
+	ensureApplicationWritesTable(t, ctx, db)
+	truncateAll(t, ctx, db)
+
+	deltaStore := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
+	jobStore := pgstore.NewJobStore(db, pgstore.JobStoreConfig{MaxAttempts: 3})
+	dispatchStore := pgstore.NewDispatchStore(deltaStore, jobStore, pgstore.DispatchStoreConfig{})
+
+	return ctx, db, deltaStore, jobStore, dispatchStore
+}
+
+func ensureApplicationWritesTable(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	_, err := db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS public.deltaflow_it_application_writes (
+	id text PRIMARY KEY,
+	payload text NOT NULL
+)`)
+	if err != nil {
+		t.Fatalf("ensureApplicationWritesTable: %v", err)
+	}
+}
+
 func truncateAll(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	_, err := db.ExecContext(ctx, "TRUNCATE deltaflow.deltaflow_sync_jobs, deltaflow.deltaflow_deltas CASCADE")
+	_, err := db.ExecContext(ctx, "TRUNCATE public.deltaflow_it_application_writes, deltaflow.deltaflow_sync_jobs, deltaflow.deltaflow_deltas CASCADE")
 	if err != nil {
 		t.Fatalf("truncateAll: %v", err)
 	}
@@ -90,6 +122,101 @@ func TestPostgresContainer_DeltaPullIsSyncScoped(t *testing.T) {
 	}
 	if pulled[0].ID != owned.ID {
 		t.Fatalf("pulled ID = %s, want %s", pulled[0].ID, owned.ID)
+	}
+}
+
+func TestPostgresContainer_EnqueueInTxCommitsWithApplicationWrite(t *testing.T) {
+	ctx, db, deltaStore, _, _ := withPostgresStores(t)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO public.deltaflow_it_application_writes (id, payload)
+VALUES ($1, $2)`, "app-1", "payload-1"); err != nil {
+		t.Fatalf("insert app write: %v", err)
+	}
+
+	inserted, err := deltaStore.EnqueueInTx(ctx, tx, deltaflow.Delta{
+		SyncID:         syncA,
+		Origin:         deltaflow.OriginOperationUpdated,
+		ProjectionType: "Contact",
+		ProjectionKey:  contactKey("txn-1"),
+	})
+	if err != nil {
+		t.Fatalf("enqueue tx: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	stored, ok, err := deltaStore.Get(ctx, inserted.ID)
+	if err != nil || !ok {
+		t.Fatalf("get committed delta: ok=%v err=%v", ok, err)
+	}
+	if stored.SyncID != syncA {
+		t.Fatalf("stored sync_id = %s, want %s", stored.SyncID, syncA)
+	}
+
+	var writes int
+	if err := db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM public.deltaflow_it_application_writes
+WHERE id = $1`, "app-1").Scan(&writes); err != nil {
+		t.Fatalf("count app writes: %v", err)
+	}
+	if writes != 1 {
+		t.Fatalf("committed app writes = %d, want 1", writes)
+	}
+}
+
+func TestPostgresContainer_EnqueueInTxRollbackRemovesDeltaAndApplicationWrite(t *testing.T) {
+	ctx, db, deltaStore, _, _ := withPostgresStores(t)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO public.deltaflow_it_application_writes (id, payload)
+VALUES ($1, $2)`, "app-rollback", "payload-rollback"); err != nil {
+		t.Fatalf("insert app write: %v", err)
+	}
+
+	inserted, err := deltaStore.EnqueueInTx(ctx, tx, deltaflow.Delta{
+		SyncID:         syncA,
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey:  contactKey("txn-rollback"),
+	})
+	if err != nil {
+		t.Fatalf("enqueue tx: %v", err)
+	}
+
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback tx: %v", err)
+	}
+
+	if _, ok, err := deltaStore.Get(ctx, inserted.ID); err != nil {
+		t.Fatalf("get rolled back delta: %v", err)
+	} else if ok {
+		t.Fatal("rolled back delta is still visible")
+	}
+
+	var writes int
+	if err := db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM public.deltaflow_it_application_writes
+WHERE id = $1`, "app-rollback").Scan(&writes); err != nil {
+		t.Fatalf("count app writes: %v", err)
+	}
+	if writes != 0 {
+		t.Fatalf("rolled back app writes = %d, want 0", writes)
 	}
 }
 
