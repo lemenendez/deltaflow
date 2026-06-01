@@ -18,7 +18,28 @@ func NewDeltaStore(db *sql.DB, cfg connectors.DeltaStoreConfig) *DeltaStore {
 	return &DeltaStore{DeltaStoreBase: connectors.NewDeltaStoreBase(db, cfg)}
 }
 
+type queryRowContextExecutor interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// Enqueue inserts a delta outside the caller's application transaction.
+// Useful for tests, backfills, CLI/admin tools, and non-application writes.
+// For durable outbox with application writes, prefer EnqueueInTx. This is the way.
 func (s *DeltaStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (*deltaflow.Delta, error) {
+	return s.enqueue(ctx, s.DB, delta)
+}
+
+// EnqueueInTx inserts a delta using the caller-provided SQL transaction.
+// Use this when application writes and outbox insert must commit or roll back together.
+func (s *DeltaStore) EnqueueInTx(ctx context.Context, tx *sql.Tx, delta deltaflow.Delta) (*deltaflow.Delta, error) {
+	if tx == nil {
+		return nil, errors.New("delta store requires transaction")
+	}
+
+	return s.enqueue(ctx, tx, delta)
+}
+
+func (s *DeltaStore) enqueue(ctx context.Context, exec queryRowContextExecutor, delta deltaflow.Delta) (*deltaflow.Delta, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -45,7 +66,7 @@ RETURNING
 	dispatched_at,
 	metadata`
 
-	row := s.DB.QueryRowContext(ctx, `
+	row := exec.QueryRowContext(ctx, `
 INSERT INTO deltaflow.deltaflow_deltas (
 	sync_id,
 	origin,

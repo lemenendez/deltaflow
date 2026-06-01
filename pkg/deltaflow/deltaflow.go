@@ -115,11 +115,8 @@ type Engine interface {
 
 type DeltaStore interface {
 	Enqueue(ctx context.Context, delta Delta) (*Delta, error)
-
 	Get(ctx context.Context, deltaID DeltaID) (*Delta, bool, error)
-
 	Pull(ctx context.Context, syncID SyncID, limit int) ([]*Delta, error)
-
 	MarkDispatched(ctx context.Context, deltaID DeltaID) error
 }
 

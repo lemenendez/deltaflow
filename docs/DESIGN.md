@@ -671,6 +671,12 @@ The domain model is split into two concerns:
 The outbox table records application-side change signals in the same transaction
 as business writes.
 
+In the Postgres implementation, application code should execute its business
+write and Delta insert inside the same `*sql.Tx`. The concrete
+`postgres.DeltaStore` exposes `EnqueueInTx(ctx, tx, delta)` for this path,
+while regular `Enqueue(ctx, delta)` remains available for non-transactional
+operational inserts.
+
 The jobs table is worker-facing and tracks claim/lease/retry/dead state for
 execution.
 
@@ -683,6 +689,31 @@ Required behavior:
 - latest-state dedupe is supported by stable projection identity
 ```
 
+Example transactional write path:
+
+```go
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+    return err
+}
+defer tx.Rollback()
+
+if _, err := tx.ExecContext(ctx, `INSERT INTO app_contacts (id, name) VALUES ($1, $2)`, id, name); err != nil {
+    return err
+}
+
+if _, err := deltaStore.EnqueueInTx(ctx, tx, deltaflow.Delta{
+    SyncID:         syncID,
+    Origin:         deltaflow.OriginOperationUpdated,
+    ProjectionType: "Contact",
+    ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(strconv.Quote(id))},
+}); err != nil {
+    return err
+}
+
+return tx.Commit()
+```
+
 In v0.2, these concerns are represented by in-memory stores.
 
 Detailed SQL schema, indexes, and migration shape are deferred to a persistence milestone.
@@ -690,6 +721,13 @@ Detailed SQL schema, indexes, and migration shape are deferred to a persistence 
 ---
 
 ## 8. Minimal Go Interfaces
+
+Interface boundary rule:
+
+- Keep `pkg/deltaflow` interfaces transport-agnostic and focused on domain workflow.
+- Do not add queue/ack dispatcher semantics (broker handles, ack/nack contracts, delivery tokens) to the public interfaces.
+- Introduce queue-specific behavior only in connector packages (for example, Postgres, Kafka, SQS, NATS) through concrete extension methods.
+- This preserves a stable core API while allowing future dispatcher implementations to evolve independently.
 
 ```go
 type ProjectionType string

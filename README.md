@@ -11,3 +11,7 @@ Standalone examples live under `playground/`.
 
 - `playground/01-in-memory`: in-memory latest-state flow using the public DeltaFlow API.
 - `playground/02-postgres`: Postgres-backed Contact delta flow using DeltaStore, DispatchStore, and JobStore via docker compose.
+
+The concrete Postgres delta store provides two clear write paths:
+- `Enqueue(ctx, delta)` for standalone inserts (tests, backfills, CLI/admin tools).
+- `EnqueueInTx(ctx, tx, delta)` when app writes and outbox inserts must share the same SQL transaction.
