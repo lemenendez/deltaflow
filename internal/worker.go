@@ -178,12 +178,12 @@ func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFu
 			return
 		case <-ticker.C:
 			if err := w.JobStore.RenewLease(ctx, jobID, w.WorkerID, w.LockFor); err != nil {
-				// Stop projector/applier work immediately once lease renewal fails.
-				cancel()
 				select {
 				case errCh <- fmt.Errorf("lease renewal failed: %w", err):
 				default:
 				}
+				// Publish the lease failure first, then stop in-flight work.
+				cancel()
 				return
 			}
 		}
