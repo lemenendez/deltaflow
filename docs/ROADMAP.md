@@ -29,7 +29,7 @@ v0.4.0   Postgres lease hardening + transactional app patterns
          - lease renewal/heartbeat semantics
          - lease ownership checks on job state transitions
          - advanced lease observability and operations
-         - layground for concurrent workload simulation (writers + workers) 
+         - playground for concurrent workload simulation (writers + workers)
 
 v0.5.0   latest_state MVP
          - Projector.Project()
