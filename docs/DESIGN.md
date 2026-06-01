@@ -500,7 +500,8 @@ sequenceDiagram
 If lease renewal fails, the worker cancels in-flight work immediately so it
 does not continue without ownership. If `Apply` returns `context.Canceled`
 because of that cancellation, the worker records the lease renewal error as the
-real failure cause.
+real failure cause. The same precedence applies when `Project` returns early
+with `context.Canceled` after heartbeat-triggered cancellation.
 
 ---
 
