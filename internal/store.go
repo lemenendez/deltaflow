@@ -317,8 +317,22 @@ func (s *JobMemoryStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID,
 	return cloneSyncJob(job), nil
 }
 
-func (s *JobMemoryStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, ghostDetected bool) error {
-	return s.update(ctx, jobID, func(job *deltaflow.SyncJob, now time.Time) {
+func (s *JobMemoryStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if lockFor <= 0 {
+		return deltaflow.ErrInvalidLockFor
+	}
+
+	return s.updateOwned(ctx, jobID, workerID, func(job *deltaflow.SyncJob, now time.Time) {
+		lockedUntil := now.Add(lockFor)
+		job.LockedUntil = &lockedUntil
+	})
+}
+
+func (s *JobMemoryStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, ghostDetected bool) error {
+	return s.updateOwned(ctx, jobID, workerID, func(job *deltaflow.SyncJob, now time.Time) {
 		job.State = deltaflow.StateSynced
 		job.GhostDetected = ghostDetected
 		job.SyncedAt = &now
@@ -326,8 +340,8 @@ func (s *JobMemoryStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJob
 	})
 }
 
-func (s *JobMemoryStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, err error, nextRunAt time.Time) error {
-	return s.update(ctx, jobID, func(job *deltaflow.SyncJob, now time.Time) {
+func (s *JobMemoryStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
+	return s.updateOwned(ctx, jobID, workerID, func(job *deltaflow.SyncJob, now time.Time) {
 		job.State = deltaflow.StateRetrying
 		job.AttemptCount++
 		job.LastError = stringPtr(errorMessage(err))
@@ -336,8 +350,8 @@ func (s *JobMemoryStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJ
 	})
 }
 
-func (s *JobMemoryStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, err error) error {
-	return s.update(ctx, jobID, func(job *deltaflow.SyncJob, now time.Time) {
+func (s *JobMemoryStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
+	return s.updateOwned(ctx, jobID, workerID, func(job *deltaflow.SyncJob, now time.Time) {
 		job.State = deltaflow.StateDead
 		job.AttemptCount++
 		job.LastError = stringPtr(errorMessage(err))
@@ -346,7 +360,7 @@ func (s *JobMemoryStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID
 	})
 }
 
-func (s *JobMemoryStore) update(ctx context.Context, jobID deltaflow.SyncJobID, fn func(*deltaflow.SyncJob, time.Time)) error {
+func (s *JobMemoryStore) updateOwned(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, fn func(*deltaflow.SyncJob, time.Time)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -358,12 +372,25 @@ func (s *JobMemoryStore) update(ctx context.Context, jobID deltaflow.SyncJobID, 
 	if !ok {
 		return deltaflow.ErrJobNotFound
 	}
+	if !jobLeaseOwned(job, s.now().UTC(), workerID) {
+		return deltaflow.ErrJobLeaseNotOwned
+	}
 
 	now := s.now().UTC()
 	fn(job, now)
 	job.UpdatedAt = now
 
 	return nil
+}
+
+func jobLeaseOwned(job *deltaflow.SyncJob, now time.Time, workerID string) bool {
+	if job == nil || job.State != deltaflow.StateProcessing || job.LockedBy == nil || *job.LockedBy != workerID {
+		return false
+	}
+	if job.LockedUntil == nil {
+		return false
+	}
+	return job.LockedUntil.After(now)
 }
 
 func (s *JobMemoryStore) claimableJobIDsLocked(now time.Time, syncID deltaflow.SyncID) []deltaflow.SyncJobID {

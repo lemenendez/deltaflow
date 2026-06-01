@@ -300,7 +300,28 @@ RETURNING
 	return job, nil
 }
 
-func (s *JobStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, ghostDetected bool) error {
+func (s *JobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if lockFor <= 0 {
+		return deltaflow.ErrInvalidLockFor
+	}
+
+	now := s.Now()
+	lockedUntil := now.Add(lockFor)
+	return s.update(ctx, jobID, `
+UPDATE deltaflow.deltaflow_sync_jobs
+SET
+	locked_until = $2,
+	updated_at = $3
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND locked_by = $4
+	AND locked_until > $3`, lockedUntil, now, workerID)
+}
+
+func (s *JobStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, ghostDetected bool) error {
 	return s.update(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
@@ -310,10 +331,13 @@ SET
 	locked_by = NULL,
 	locked_until = NULL,
 	updated_at = $3
-WHERE id = $1::uuid`, ghostDetected, s.Now())
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND locked_by = $4
+	AND locked_until > $3`, ghostDetected, s.Now(), workerID)
 }
 
-func (s *JobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, err error, nextRunAt time.Time) error {
+func (s *JobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
 	now := s.Now()
 	msg := connectors.ErrorMessage(err)
 	return s.update(ctx, jobID, `
@@ -326,10 +350,13 @@ SET
 	locked_by = NULL,
 	locked_until = NULL,
 	updated_at = $4
-WHERE id = $1::uuid`, msg, nextRunAt.UTC(), now)
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND locked_by = $5
+	AND locked_until > $4`, msg, nextRunAt.UTC(), now, workerID)
 }
 
-func (s *JobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, err error) error {
+func (s *JobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
 	now := s.Now()
 	msg := connectors.ErrorMessage(err)
 	return s.update(ctx, jobID, `
@@ -342,7 +369,10 @@ SET
 	locked_by = NULL,
 	locked_until = NULL,
 	updated_at = $3
-WHERE id = $1::uuid`, msg, now)
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND locked_by = $4
+	AND locked_until > $3`, msg, now, workerID)
 }
 
 func (s *JobStore) update(ctx context.Context, jobID deltaflow.SyncJobID, query string, args ...any) error {
@@ -363,9 +393,32 @@ func (s *JobStore) update(ctx context.Context, jobID deltaflow.SyncJobID, query 
 		return err
 	}
 	if n == 0 {
-		return deltaflow.ErrJobNotFound
+		exists, err := s.jobExists(ctx, jobID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return deltaflow.ErrJobNotFound
+		}
+		return deltaflow.ErrJobLeaseNotOwned
 	}
 	return nil
+}
+
+func (s *JobStore) jobExists(ctx context.Context, jobID deltaflow.SyncJobID) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+
+	row := s.DB.QueryRowContext(ctx, `SELECT 1 FROM deltaflow.deltaflow_sync_jobs WHERE id = $1::uuid`, jobID)
+	var exists int
+	if err := row.Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func isOutboxDeltaMappedViolation(err error) bool {

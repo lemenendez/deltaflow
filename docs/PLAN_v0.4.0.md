@@ -5,8 +5,8 @@ Goal: Postgres lease hardening + transactional app patterns.
 ## Scope
 
 - [x] Insert Deltas transactionally with application writes.
-- [ ] Lease renewal/heartbeat semantics.
-- [ ] Lease ownership checks on job state transitions.
+- [x] Lease renewal/heartbeat semantics.
+- [x] Lease ownership checks on job state transitions.
 - [ ] Advanced lease observability and operations.
 - [ ] Add new playground for concurrent workload simulation (writers + workers).
 

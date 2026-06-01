@@ -962,8 +962,8 @@ Baseline lease behavior (v0.3 scope):
 Lease hardening (v0.4 scope):
 
 ```text
-- add explicit lease renewal/heartbeat API
-- enforce lease ownership checks on MarkSynced/MarkRetrying/MarkDead
+- add explicit lease renewal/heartbeat API (`RenewLease` while processing)
+- enforce lease ownership checks on MarkSynced/MarkRetrying/MarkDead using worker_id + active lease
 - add tighter lease observability and operational controls
 ```
 
