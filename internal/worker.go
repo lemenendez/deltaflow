@@ -73,6 +73,9 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		}
 
 		if applyErr := w.Applier.Apply(jobCtx, op); applyErr != nil {
+			if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+				return w.failOrRetry(ctx, job, heartbeatErr)
+			}
 			return w.failOrRetry(ctx, job, applyErr)
 		}
 		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
@@ -93,6 +96,9 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	}
 
 	if err := w.Applier.Apply(jobCtx, op); err != nil {
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetry(ctx, job, heartbeatErr)
+		}
 		return w.failOrRetry(ctx, job, err)
 	}
 	if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
