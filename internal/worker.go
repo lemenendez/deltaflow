@@ -20,6 +20,9 @@ func (c SyncWorkerConfig) Validate() error {
 	if c.SyncID == "" {
 		return errors.New("sync worker config: sync_id is required")
 	}
+	if c.WorkerID == "" {
+		return errors.New("sync worker config: worker_id is required")
+	}
 
 	return nil
 }
