@@ -414,6 +414,84 @@ func (s *JobStore) collectJobs(rows *sql.Rows) ([]*deltaflow.SyncJob, error) {
 	return jobs, nil
 }
 
+func (s *JobStore) ForceReleaseExpiredLease(ctx context.Context, jobID deltaflow.SyncJobID, auditReason string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	reason := strings.TrimSpace(auditReason)
+	if reason == "" {
+		return deltaflow.ErrAuditReasonRequired
+	}
+
+	now := s.Now()
+	msg := "operator_force_release: " + reason
+	return s.updateLeaseOperator(ctx, jobID, `
+UPDATE deltaflow.deltaflow_sync_jobs
+SET
+	last_error = $2,
+	locked_by = NULL,
+	locked_until = NULL,
+	updated_at = $3
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND (locked_until IS NULL OR locked_until <= $3)`, msg, now)
+}
+
+func (s *JobStore) RequeueExpiredLease(ctx context.Context, jobID deltaflow.SyncJobID, nextRunAt time.Time, auditReason string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	reason := strings.TrimSpace(auditReason)
+	if reason == "" {
+		return deltaflow.ErrAuditReasonRequired
+	}
+
+	now := s.Now()
+	msg := "operator_requeue: " + reason
+	return s.updateLeaseOperator(ctx, jobID, `
+UPDATE deltaflow.deltaflow_sync_jobs
+SET
+	state = 'retrying',
+	available_at = $2,
+	last_error = $3,
+	locked_by = NULL,
+	locked_until = NULL,
+	updated_at = $4
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND (locked_until IS NULL OR locked_until <= $4)`, nextRunAt.UTC(), msg, now)
+}
+
+func (s *JobStore) updateLeaseOperator(ctx context.Context, jobID deltaflow.SyncJobID, query string, args ...any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	allArgs := make([]any, 0, len(args)+1)
+	allArgs = append(allArgs, jobID)
+	allArgs = append(allArgs, args...)
+
+	res, err := s.DB.ExecContext(ctx, query, allArgs...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		exists, err := s.jobExists(ctx, jobID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return deltaflow.ErrJobNotFound
+		}
+		return deltaflow.ErrJobLeaseNotExpired
+	}
+	return nil
+}
+
 func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

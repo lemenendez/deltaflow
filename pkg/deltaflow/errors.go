@@ -23,4 +23,8 @@ var (
 	ErrDeltaAlreadyMapped = errors.New("delta already mapped to job")
 	// Returned by lease query helpers when the near-expiry window is negative.
 	ErrInvalidLeaseWindow = errors.New("lease window must be non-negative")
+	// Returned by operator lease actions when an audit reason is empty.
+	ErrAuditReasonRequired = errors.New("audit reason is required")
+	// Returned by operator lease actions when the target job lease is not expired.
+	ErrJobLeaseNotExpired = errors.New("job lease not expired")
 )

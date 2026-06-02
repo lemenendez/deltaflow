@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -352,6 +353,64 @@ func (s *JobMemoryStore) ListNearExpiryLeases(ctx context.Context, syncID deltaf
 		}
 		return job.LockedUntil.After(now) && !job.LockedUntil.After(threshold)
 	}), nil
+}
+
+func (s *JobMemoryStore) ForceReleaseExpiredLease(ctx context.Context, jobID deltaflow.SyncJobID, auditReason string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	reason := strings.TrimSpace(auditReason)
+	if reason == "" {
+		return deltaflow.ErrAuditReasonRequired
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.jobs[jobID]
+	if !ok {
+		return deltaflow.ErrJobNotFound
+	}
+	now := s.now().UTC()
+	if job.State != deltaflow.StateProcessing || (job.LockedUntil != nil && job.LockedUntil.After(now)) {
+		return deltaflow.ErrJobLeaseNotExpired
+	}
+
+	job.LastError = stringPtr("operator_force_release: " + reason)
+	clearJobLock(job)
+	job.UpdatedAt = now
+
+	return nil
+}
+
+func (s *JobMemoryStore) RequeueExpiredLease(ctx context.Context, jobID deltaflow.SyncJobID, nextRunAt time.Time, auditReason string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	reason := strings.TrimSpace(auditReason)
+	if reason == "" {
+		return deltaflow.ErrAuditReasonRequired
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.jobs[jobID]
+	if !ok {
+		return deltaflow.ErrJobNotFound
+	}
+	now := s.now().UTC()
+	if job.State != deltaflow.StateProcessing || (job.LockedUntil != nil && job.LockedUntil.After(now)) {
+		return deltaflow.ErrJobLeaseNotExpired
+	}
+
+	job.State = deltaflow.StateRetrying
+	job.AvailableAt = nextRunAt.UTC()
+	job.LastError = stringPtr("operator_requeue: " + reason)
+	clearJobLock(job)
+	job.UpdatedAt = now
+
+	return nil
 }
 
 func (s *JobMemoryStore) selectProcessingLeasesLocked(syncID deltaflow.SyncID, limit int, predicate func(*deltaflow.SyncJob) bool) []*deltaflow.SyncJob {

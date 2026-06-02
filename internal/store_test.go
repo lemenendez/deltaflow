@@ -727,6 +727,62 @@ func TestJobMemoryStoreLeaseQueryHelpers(t *testing.T) {
 	}
 }
 
+func TestJobMemoryStoreOperatorLeaseActions(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	worker := "worker-1"
+	expired := now.Add(-10 * time.Second)
+	active := now.Add(time.Minute)
+
+	store.jobs["expired"] = &deltaflow.SyncJob{ID: "expired", SyncID: "sync", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &expired, UpdatedAt: now.Add(-time.Minute)}
+	store.jobs["active"] = &deltaflow.SyncJob{ID: "active", SyncID: "sync", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &active, UpdatedAt: now.Add(-time.Minute)}
+
+	if err := store.ForceReleaseExpiredLease(ctx, "expired", "manual recovery"); err != nil {
+		t.Fatalf("ForceReleaseExpiredLease returned error: %v", err)
+	}
+	released, ok, err := store.Get(ctx, "expired")
+	if err != nil || !ok {
+		t.Fatalf("Get released = (%v, %v, %v)", released, ok, err)
+	}
+	if released.LockedBy != nil || released.LockedUntil != nil {
+		t.Fatalf("released lock = (%v, %v), want nil,nil", released.LockedBy, released.LockedUntil)
+	}
+	if released.LastError == nil || *released.LastError != "operator_force_release: manual recovery" {
+		t.Fatalf("released last_error = %v, want operator_force_release", released.LastError)
+	}
+
+	nextRun := now.Add(30 * time.Second)
+	if err := store.RequeueExpiredLease(ctx, "expired", nextRun, "requeue for retry"); err != nil {
+		t.Fatalf("RequeueExpiredLease returned error: %v", err)
+	}
+	requeued, ok, err := store.Get(ctx, "expired")
+	if err != nil || !ok {
+		t.Fatalf("Get requeued = (%v, %v, %v)", requeued, ok, err)
+	}
+	if requeued.State != deltaflow.StateRetrying {
+		t.Fatalf("requeued state = %s, want %s", requeued.State, deltaflow.StateRetrying)
+	}
+	if !requeued.AvailableAt.Equal(nextRun) {
+		t.Fatalf("requeued available_at = %v, want %v", requeued.AvailableAt, nextRun)
+	}
+	if requeued.LastError == nil || *requeued.LastError != "operator_requeue: requeue for retry" {
+		t.Fatalf("requeued last_error = %v, want operator_requeue", requeued.LastError)
+	}
+
+	if err := store.ForceReleaseExpiredLease(ctx, "active", "manual release"); !errors.Is(err, deltaflow.ErrJobLeaseNotExpired) {
+		t.Fatalf("ForceReleaseExpiredLease active lease error = %v, want %v", err, deltaflow.ErrJobLeaseNotExpired)
+	}
+	if err := store.RequeueExpiredLease(ctx, "active", nextRun, "manual requeue"); !errors.Is(err, deltaflow.ErrJobLeaseNotExpired) {
+		t.Fatalf("RequeueExpiredLease active lease error = %v, want %v", err, deltaflow.ErrJobLeaseNotExpired)
+	}
+	if err := store.ForceReleaseExpiredLease(ctx, "expired", "   "); !errors.Is(err, deltaflow.ErrAuditReasonRequired) {
+		t.Fatalf("ForceReleaseExpiredLease empty reason error = %v, want %v", err, deltaflow.ErrAuditReasonRequired)
+	}
+}
+
 func TestJobMemoryStoreCreateRejectsOutboxJobWithoutDeltaID(t *testing.T) {
 	ctx := context.Background()
 	store := NewJobMemoryStore()

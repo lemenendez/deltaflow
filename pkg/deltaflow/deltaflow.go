@@ -159,6 +159,25 @@ type JobLeaseQueries interface {
 //		...
 //	}
 
+// JobLeaseOperatorActions exposes optional operator-focused lease controls.
+// Implementations may be type-asserted from JobStore where supported.
+type JobLeaseOperatorActions interface {
+	// ForceReleaseExpiredLease clears lease ownership on an expired processing job.
+	// The auditReason must be non-empty.
+	ForceReleaseExpiredLease(ctx context.Context, jobID SyncJobID, auditReason string) error
+
+	// RequeueExpiredLease moves an expired processing job to retrying and clears its lease.
+	// The auditReason must be non-empty.
+	RequeueExpiredLease(ctx context.Context, jobID SyncJobID, nextRunAt time.Time, auditReason string) error
+}
+
+// Optional operator controls can be discovered by type assertion:
+//
+//	if ops, ok := jobStore.(JobLeaseOperatorActions); ok {
+//		err := ops.ForceReleaseExpiredLease(ctx, jobID, "manual intervention")
+//		...
+//	}
+
 type DispatchStore interface {
 	DispatchPending(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
 }
