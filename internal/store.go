@@ -405,6 +405,7 @@ func (s *JobMemoryStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJob
 			"job_id", jobID,
 			"worker_id", workerID,
 			"reason", result,
+			"error", err.Error(),
 		)
 		return err
 	}
@@ -453,6 +454,7 @@ func (s *JobMemoryStore) updateOwned(ctx context.Context, jobID deltaflow.SyncJo
 	}
 
 	telemetry := s.leaseTelemetry()
+	emitTransitionLogs := transition != deltaflow.LeaseTelemetryTransitionRenewLease
 	s.mu.Lock()
 
 	var (
@@ -465,15 +467,19 @@ func (s *JobMemoryStore) updateOwned(ctx context.Context, jobID deltaflow.SyncJo
 	job, ok := s.jobs[jobID]
 	if !ok {
 		outErr = deltaflow.ErrJobNotFound
-		logEvent = "lease_transition_rejected"
-		logAttrs = []any{
-			"transition", transition,
-			"job_id", jobID,
-			"worker_id", workerID,
-			"reason", "job_not_found",
+		if emitTransitionLogs {
+			logEvent = "lease_transition_rejected"
+			logAttrs = []any{
+				"transition", transition,
+				"job_id", jobID,
+				"worker_id", workerID,
+				"reason", "job_not_found",
+			}
 		}
 		s.mu.Unlock()
-		s.logLease(logEvent, logAttrs...)
+		if emitTransitionLogs {
+			s.logLease(logEvent, logAttrs...)
+		}
 		return outErr
 	}
 	now := s.now().UTC()
@@ -482,7 +488,34 @@ func (s *JobMemoryStore) updateOwned(ctx context.Context, jobID deltaflow.SyncJo
 		ownershipResult = deltaflow.LeaseTelemetryOwnershipRejected
 		lockedUntil := cloneTimePtr(job.LockedUntil)
 		reason := "lease_not_owned"
-		logEvent = "lease_transition_rejected"
+		if emitTransitionLogs {
+			logEvent = "lease_transition_rejected"
+			logAttrs = []any{
+				"transition", transition,
+				"sync_id", job.SyncID,
+				"job_id", job.ID,
+				"worker_id", workerID,
+				"state", job.State,
+				"attempt_count", job.AttemptCount,
+				"locked_until", lockedUntil,
+				"lease_ms_remaining", leaseMSRemaining(lockedUntil, now),
+				"reason", reason,
+			}
+		}
+		s.mu.Unlock()
+		telemetry.ObserveLeaseOwnershipCheck(transition, ownershipResult)
+		if emitTransitionLogs {
+			s.logLease(logEvent, logAttrs...)
+		}
+		return outErr
+	}
+	ownershipResult = deltaflow.LeaseTelemetryOwnershipOwned
+
+	fn(job, now)
+	job.UpdatedAt = now
+	lockedUntil := cloneTimePtr(job.LockedUntil)
+	if emitTransitionLogs {
+		logEvent = "lease_transition_applied"
 		logAttrs = []any{
 			"transition", transition,
 			"sync_id", job.SyncID,
@@ -492,34 +525,15 @@ func (s *JobMemoryStore) updateOwned(ctx context.Context, jobID deltaflow.SyncJo
 			"attempt_count", job.AttemptCount,
 			"locked_until", lockedUntil,
 			"lease_ms_remaining", leaseMSRemaining(lockedUntil, now),
-			"reason", reason,
 		}
-		s.mu.Unlock()
-		telemetry.ObserveLeaseOwnershipCheck(transition, ownershipResult)
-		s.logLease(logEvent, logAttrs...)
-		return outErr
-	}
-	ownershipResult = deltaflow.LeaseTelemetryOwnershipOwned
-
-	fn(job, now)
-	job.UpdatedAt = now
-	lockedUntil := cloneTimePtr(job.LockedUntil)
-	logEvent = "lease_transition_applied"
-	logAttrs = []any{
-		"transition", transition,
-		"sync_id", job.SyncID,
-		"job_id", job.ID,
-		"worker_id", workerID,
-		"state", job.State,
-		"attempt_count", job.AttemptCount,
-		"locked_until", lockedUntil,
-		"lease_ms_remaining", leaseMSRemaining(lockedUntil, now),
 	}
 
 	s.mu.Unlock()
 
 	telemetry.ObserveLeaseOwnershipCheck(transition, ownershipResult)
-	s.logLease(logEvent, logAttrs...)
+	if emitTransitionLogs {
+		s.logLease(logEvent, logAttrs...)
+	}
 
 	return nil
 }

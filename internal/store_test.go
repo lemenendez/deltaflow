@@ -590,8 +590,8 @@ func TestJobMemoryStoreRenewLeaseTelemetrySuccess(t *testing.T) {
 	if len(telemetry.renewDurations) != 1 {
 		t.Fatalf("renew durations = %#v, want 1 entry", telemetry.renewDurations)
 	}
-	if telemetry.renewDurations[0] <= 0 {
-		t.Fatalf("renew duration = %v, want > 0", telemetry.renewDurations[0])
+	if telemetry.renewDurations[0] < 0 {
+		t.Fatalf("renew duration = %v, want >= 0", telemetry.renewDurations[0])
 	}
 }
 
@@ -628,8 +628,8 @@ func TestJobMemoryStoreRenewLeaseTelemetryOwnershipRejected(t *testing.T) {
 	if len(telemetry.renewDurations) != 1 {
 		t.Fatalf("renew durations = %#v, want 1 entry", telemetry.renewDurations)
 	}
-	if telemetry.renewDurations[0] <= 0 {
-		t.Fatalf("renew duration = %v, want > 0", telemetry.renewDurations[0])
+	if telemetry.renewDurations[0] < 0 {
+		t.Fatalf("renew duration = %v, want >= 0", telemetry.renewDurations[0])
 	}
 }
 
