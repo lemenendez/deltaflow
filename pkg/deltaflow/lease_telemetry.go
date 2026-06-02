@@ -2,6 +2,23 @@ package deltaflow
 
 import "time"
 
+const (
+	LeaseTelemetryResultSuccess        = "success"
+	LeaseTelemetryResultError          = "error"
+	LeaseTelemetryResultEmpty          = "empty"
+	LeaseTelemetryResultInvalidLockFor = "invalid_lock_for"
+	LeaseTelemetryResultJobNotFound    = "job_not_found"
+	LeaseTelemetryResultLeaseNotOwned  = "lease_not_owned"
+
+	LeaseTelemetryOwnershipOwned    = "owned"
+	LeaseTelemetryOwnershipRejected = "rejected"
+
+	LeaseTelemetryTransitionRenewLease   = "renew_lease"
+	LeaseTelemetryTransitionMarkSynced   = "mark_synced"
+	LeaseTelemetryTransitionMarkRetrying = "mark_retrying"
+	LeaseTelemetryTransitionMarkDead     = "mark_dead"
+)
+
 // LeaseTelemetry captures low-cardinality lease signals for metrics exporters.
 // Implementations should avoid high-cardinality labels (for example, job IDs).
 type LeaseTelemetry interface {

@@ -235,7 +235,7 @@ func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, worke
 		return nil, err
 	}
 	if lockFor <= 0 {
-		s.LeaseTelemetry().ObserveLeaseClaim("invalid_lock_for")
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultInvalidLockFor)
 		s.logLease("lease_claim_rejected",
 			"sync_id", syncID,
 			"worker_id", workerID,
@@ -306,7 +306,7 @@ RETURNING
 	var reclaimed bool
 	job, ok, err := s.ScanSyncJobWithExtras(row, &reclaimed)
 	if err != nil {
-		s.LeaseTelemetry().ObserveLeaseClaim("error")
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultError)
 		s.logLease("lease_claim_failed",
 			"sync_id", syncID,
 			"worker_id", workerID,
@@ -316,14 +316,14 @@ RETURNING
 		return nil, err
 	}
 	if !ok {
-		s.LeaseTelemetry().ObserveLeaseClaim("empty")
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultEmpty)
 		s.logLease("lease_claim_empty",
 			"sync_id", syncID,
 			"worker_id", workerID,
 		)
 		return nil, nil
 	}
-	s.LeaseTelemetry().ObserveLeaseClaim("success")
+	s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultSuccess)
 	if reclaimed {
 		s.LeaseTelemetry().ObserveLeaseReclaim()
 	}
@@ -349,7 +349,7 @@ func (s *JobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, wo
 		return err
 	}
 	if lockFor <= 0 {
-		s.LeaseTelemetry().ObserveLeaseRenew("invalid_lock_for", 0)
+		s.LeaseTelemetry().ObserveLeaseRenew(deltaflow.LeaseTelemetryResultInvalidLockFor, 0)
 		s.logLease("lease_renew_rejected",
 			"job_id", jobID,
 			"worker_id", workerID,
@@ -373,7 +373,7 @@ WHERE id = $1::uuid
 	result := leaseResult(err)
 	s.LeaseTelemetry().ObserveLeaseRenew(result, time.Since(start))
 	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
-		s.LeaseTelemetry().ObserveLeaseOwnershipCheck("renew_lease", "rejected")
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(deltaflow.LeaseTelemetryTransitionRenewLease, deltaflow.LeaseTelemetryOwnershipRejected)
 	}
 	if err != nil {
 		s.logLease("lease_renew_failed",
@@ -383,7 +383,7 @@ WHERE id = $1::uuid
 		)
 		return err
 	}
-	s.LeaseTelemetry().ObserveLeaseOwnershipCheck("renew_lease", "owned")
+	s.LeaseTelemetry().ObserveLeaseOwnershipCheck(deltaflow.LeaseTelemetryTransitionRenewLease, deltaflow.LeaseTelemetryOwnershipOwned)
 	s.logLease("lease_renewed",
 		"job_id", jobID,
 		"worker_id", workerID,
@@ -559,11 +559,11 @@ func isOutboxDeltaMappedViolation(err error) bool {
 
 func (s *JobStore) observeOwnershipResult(transition string, err error) {
 	if err == nil {
-		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, "owned")
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, deltaflow.LeaseTelemetryOwnershipOwned)
 		return
 	}
 	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
-		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, "rejected")
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, deltaflow.LeaseTelemetryOwnershipRejected)
 	}
 }
 
@@ -580,16 +580,16 @@ func (s *JobStore) logLease(event string, attrs ...any) {
 
 func leaseResult(err error) string {
 	if err == nil {
-		return "success"
+		return deltaflow.LeaseTelemetryResultSuccess
 	}
 	if errors.Is(err, deltaflow.ErrJobNotFound) {
-		return "job_not_found"
+		return deltaflow.LeaseTelemetryResultJobNotFound
 	}
 	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
-		return "lease_not_owned"
+		return deltaflow.LeaseTelemetryResultLeaseNotOwned
 	}
 	if errors.Is(err, deltaflow.ErrInvalidLockFor) {
-		return "invalid_lock_for"
+		return deltaflow.LeaseTelemetryResultInvalidLockFor
 	}
-	return "error"
+	return deltaflow.LeaseTelemetryResultError
 }

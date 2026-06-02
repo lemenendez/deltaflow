@@ -454,8 +454,8 @@ func TestJobMemoryStoreClaimNextTelemetryInvalidLockFor(t *testing.T) {
 	if !errors.Is(err, deltaflow.ErrInvalidLockFor) {
 		t.Fatalf("ClaimNext invalid lock error = %v, want %v", err, deltaflow.ErrInvalidLockFor)
 	}
-	if len(telemetry.claimResults) != 1 || telemetry.claimResults[0] != "invalid_lock_for" {
-		t.Fatalf("claim results = %#v, want [invalid_lock_for]", telemetry.claimResults)
+	if len(telemetry.claimResults) != 1 || telemetry.claimResults[0] != deltaflow.LeaseTelemetryResultInvalidLockFor {
+		t.Fatalf("claim results = %#v, want [%s]", telemetry.claimResults, deltaflow.LeaseTelemetryResultInvalidLockFor)
 	}
 	if telemetry.reclaimCount != 0 {
 		t.Fatalf("reclaim count = %d, want 0", telemetry.reclaimCount)
@@ -478,8 +478,8 @@ func TestJobMemoryStoreClaimNextTelemetryEmpty(t *testing.T) {
 	if claimed != nil {
 		t.Fatalf("ClaimNext empty returned %#v, want nil", claimed)
 	}
-	if len(telemetry.claimResults) != 1 || telemetry.claimResults[0] != "empty" {
-		t.Fatalf("claim results = %#v, want [empty]", telemetry.claimResults)
+	if len(telemetry.claimResults) != 1 || telemetry.claimResults[0] != deltaflow.LeaseTelemetryResultEmpty {
+		t.Fatalf("claim results = %#v, want [%s]", telemetry.claimResults, deltaflow.LeaseTelemetryResultEmpty)
 	}
 	if telemetry.reclaimCount != 0 {
 		t.Fatalf("reclaim count = %d, want 0", telemetry.reclaimCount)
@@ -515,8 +515,8 @@ func TestJobMemoryStoreClaimNextTelemetryExpiredReclaim(t *testing.T) {
 	if claimed == nil {
 		t.Fatal("ClaimNext expired reclaim returned nil")
 	}
-	if len(telemetry.claimResults) != 1 || telemetry.claimResults[0] != "success" {
-		t.Fatalf("claim results = %#v, want [success]", telemetry.claimResults)
+	if len(telemetry.claimResults) != 1 || telemetry.claimResults[0] != deltaflow.LeaseTelemetryResultSuccess {
+		t.Fatalf("claim results = %#v, want [%s]", telemetry.claimResults, deltaflow.LeaseTelemetryResultSuccess)
 	}
 	if telemetry.reclaimCount != 1 {
 		t.Fatalf("reclaim count = %d, want 1", telemetry.reclaimCount)
@@ -553,8 +553,8 @@ func TestJobMemoryStoreOwnershipRejectedTelemetry(t *testing.T) {
 		t.Fatalf("ownership checks = %#v, want 1 entry", telemetry.ownershipChecks)
 	}
 	check := telemetry.ownershipChecks[0]
-	if check.transition != "mark_synced" || check.result != "rejected" {
-		t.Fatalf("ownership check = %#v, want mark_synced/rejected", check)
+	if check.transition != deltaflow.LeaseTelemetryTransitionMarkSynced || check.result != deltaflow.LeaseTelemetryOwnershipRejected {
+		t.Fatalf("ownership check = %#v, want %s/%s", check, deltaflow.LeaseTelemetryTransitionMarkSynced, deltaflow.LeaseTelemetryOwnershipRejected)
 	}
 }
 
