@@ -20,7 +20,7 @@ Telemetry stance for this milestone:
 
 Scope checklist:
 
-- [ ] Add lease lifecycle structured log events (concrete `event` values): `lease_claim_rejected`, `lease_claim_empty`, `lease_claimed`, `lease_renew_rejected`, `lease_renew_failed`, `lease_renewed`, `lease_transition_rejected`, `lease_transition_applied`, `worker_claim_empty`, `worker_claimed`, `worker_heartbeat_stopped`, `worker_heartbeat_renew_failed`.
+- [ ] Add lease lifecycle structured log events (concrete `event` values): `lease_claim_rejected`, `lease_claim_failed`, `lease_claim_empty`, `lease_claimed`, `lease_renew_rejected`, `lease_renew_failed`, `lease_renewed`, `lease_transition_rejected`, `lease_transition_applied`, `worker_claim_empty`, `worker_claimed`, `worker_heartbeat_stopped`, `worker_heartbeat_renew_failed`.
 - [ ] Standardize lease log fields across stores: `sync_id`, `job_id`, `worker_id`, `state`, `attempt_count`, `locked_until`, `lease_ms_remaining`, `reason`; reclaim is represented as `event=lease_claimed` with `reason=expired_reclaimed`.
 - [ ] Add telemetry counters/timers for lease claim/renew/ownership rejection/reclaim outcomes.
 - [ ] Add operational queries/helpers for: active leases, expired processing leases, near-expiry leases.
