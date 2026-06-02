@@ -249,7 +249,12 @@ func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, worke
 
 	row := s.DB.QueryRowContext(ctx, `
 WITH candidate AS (
-	SELECT id
+		SELECT
+			id,
+			(
+				state = 'processing'
+				AND (locked_until IS NULL OR locked_until <= $1)
+			) AS reclaimed
 	FROM deltaflow.deltaflow_sync_jobs
 	WHERE
 		sync_id = $2
@@ -295,15 +300,18 @@ RETURNING
 	j.synced_at,
 	j.dead_at,
 	j.created_at,
-	j.updated_at`, now, syncID, workerID, lockedUntil)
+	j.updated_at,
+	candidate.reclaimed`, now, syncID, workerID, lockedUntil)
 
-	job, ok, err := s.ScanSyncJob(row)
+	var reclaimed bool
+	job, ok, err := s.ScanSyncJobWithExtras(row, &reclaimed)
 	if err != nil {
 		s.LeaseTelemetry().ObserveLeaseClaim("error")
 		s.logLease("lease_claim_failed",
 			"sync_id", syncID,
 			"worker_id", workerID,
-			"reason", err.Error(),
+			"reason", leaseResult(err),
+			"error", err.Error(),
 		)
 		return nil, err
 	}
@@ -316,6 +324,13 @@ RETURNING
 		return nil, nil
 	}
 	s.LeaseTelemetry().ObserveLeaseClaim("success")
+	if reclaimed {
+		s.LeaseTelemetry().ObserveLeaseReclaim()
+	}
+	reason := "ready"
+	if reclaimed {
+		reason = "expired_reclaimed"
+	}
 	s.logLease("lease_claimed",
 		"sync_id", syncID,
 		"job_id", job.ID,
@@ -324,7 +339,7 @@ RETURNING
 		"attempt_count", job.AttemptCount,
 		"locked_until", job.LockedUntil,
 		"lease_ms_remaining", int64(lockFor/time.Millisecond),
-		"reason", "ready_or_reclaimed",
+		"reason", reason,
 	)
 	return job, nil
 }

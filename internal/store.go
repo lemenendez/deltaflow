@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -506,13 +507,13 @@ func leaseResult(err error) string {
 	if err == nil {
 		return "success"
 	}
-	if err == deltaflow.ErrJobNotFound {
+	if errors.Is(err, deltaflow.ErrJobNotFound) {
 		return "job_not_found"
 	}
-	if err == deltaflow.ErrJobLeaseNotOwned {
+	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
 		return "lease_not_owned"
 	}
-	if err == deltaflow.ErrInvalidLockFor {
+	if errors.Is(err, deltaflow.ErrInvalidLockFor) {
 		return "invalid_lock_for"
 	}
 	return "error"

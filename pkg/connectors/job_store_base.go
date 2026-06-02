@@ -92,6 +92,10 @@ func (b *JobStoreBase) PrepareJobForCreate(job deltaflow.SyncJob) (deltaflow.Syn
 }
 
 func (b *JobStoreBase) ScanSyncJob(scanner rowScanner) (*deltaflow.SyncJob, bool, error) {
+	return b.ScanSyncJobWithExtras(scanner)
+}
+
+func (b *JobStoreBase) ScanSyncJobWithExtras(scanner rowScanner, extraTargets ...any) (*deltaflow.SyncJob, bool, error) {
 	var (
 		id                string
 		syncID            string
@@ -115,7 +119,7 @@ func (b *JobStoreBase) ScanSyncJob(scanner rowScanner) (*deltaflow.SyncJob, bool
 		updatedAt         time.Time
 	)
 
-	err := scanner.Scan(
+	dest := []any{
 		&id,
 		&syncID,
 		&deltaID,
@@ -136,7 +140,10 @@ func (b *JobStoreBase) ScanSyncJob(scanner rowScanner) (*deltaflow.SyncJob, bool
 		&deadAt,
 		&createdAt,
 		&updatedAt,
-	)
+	}
+	dest = append(dest, extraTargets...)
+
+	err := scanner.Scan(dest...)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
