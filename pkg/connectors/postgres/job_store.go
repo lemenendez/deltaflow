@@ -253,6 +253,167 @@ WHERE id = $1::uuid`, jobID)
 	return job, true, nil
 }
 
+func (s *JobStore) ListActiveLeases(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	now := s.Now()
+	rows, err := s.DB.QueryContext(ctx, `
+SELECT
+	id::text,
+	sync_id,
+	delta_id::text,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at,
+	locked_by,
+	locked_until,
+	ghost_detected,
+	synced_at,
+	dead_at,
+	created_at,
+	updated_at
+FROM deltaflow.deltaflow_sync_jobs
+WHERE
+	state = 'processing'
+	AND locked_until > $1
+	AND ($2::text = '' OR sync_id = $2)
+ORDER BY locked_until ASC, updated_at ASC, id ASC
+LIMIT $3`, now, syncID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.collectJobs(rows)
+}
+
+func (s *JobStore) ListExpiredProcessingLeases(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	now := s.Now()
+	rows, err := s.DB.QueryContext(ctx, `
+SELECT
+	id::text,
+	sync_id,
+	delta_id::text,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at,
+	locked_by,
+	locked_until,
+	ghost_detected,
+	synced_at,
+	dead_at,
+	created_at,
+	updated_at
+FROM deltaflow.deltaflow_sync_jobs
+WHERE
+	state = 'processing'
+	AND (locked_until IS NULL OR locked_until <= $1)
+	AND ($2::text = '' OR sync_id = $2)
+ORDER BY locked_until ASC NULLS FIRST, updated_at ASC, id ASC
+LIMIT $3`, now, syncID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.collectJobs(rows)
+}
+
+func (s *JobStore) ListNearExpiryLeases(ctx context.Context, syncID deltaflow.SyncID, within time.Duration, limit int) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if within < 0 {
+		return nil, deltaflow.ErrInvalidLeaseWindow
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	now := s.Now()
+	threshold := now.Add(within)
+	rows, err := s.DB.QueryContext(ctx, `
+SELECT
+	id::text,
+	sync_id,
+	delta_id::text,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at,
+	locked_by,
+	locked_until,
+	ghost_detected,
+	synced_at,
+	dead_at,
+	created_at,
+	updated_at
+FROM deltaflow.deltaflow_sync_jobs
+WHERE
+	state = 'processing'
+	AND locked_until > $1
+	AND locked_until <= $2
+	AND ($3::text = '' OR sync_id = $3)
+ORDER BY locked_until ASC, updated_at ASC, id ASC
+LIMIT $4`, now, threshold, syncID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.collectJobs(rows)
+}
+
+func (s *JobStore) collectJobs(rows *sql.Rows) ([]*deltaflow.SyncJob, error) {
+	jobs := make([]*deltaflow.SyncJob, 0)
+	for rows.Next() {
+		job, ok, err := s.ScanSyncJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
 func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

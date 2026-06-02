@@ -680,6 +680,53 @@ func TestJobMemoryStoreRenewLeaseUsesSingleNowForOwnershipAndUpdate(t *testing.T
 	}
 }
 
+func TestJobMemoryStoreLeaseQueryHelpers(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	worker := "worker-1"
+	nearUntil := now.Add(20 * time.Second)
+	activeUntil := now.Add(10 * time.Minute)
+	expiredUntil := now.Add(-10 * time.Second)
+
+	store.jobs["near"] = &deltaflow.SyncJob{ID: "near", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &nearUntil, UpdatedAt: now.Add(-3 * time.Second)}
+	store.jobs["active"] = &deltaflow.SyncJob{ID: "active", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &activeUntil, UpdatedAt: now.Add(-2 * time.Second)}
+	store.jobs["expired"] = &deltaflow.SyncJob{ID: "expired", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &expiredUntil, UpdatedAt: now.Add(-time.Second)}
+	store.jobs["nolock"] = &deltaflow.SyncJob{ID: "nolock", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: nil, UpdatedAt: now}
+	store.jobs["other-sync"] = &deltaflow.SyncJob{ID: "other-sync", SyncID: "sync-b", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &nearUntil, UpdatedAt: now}
+	store.jobs["pending"] = &deltaflow.SyncJob{ID: "pending", SyncID: "sync-a", State: deltaflow.StatePending, UpdatedAt: now}
+
+	active, err := store.ListActiveLeases(ctx, "sync-a", 10)
+	if err != nil {
+		t.Fatalf("ListActiveLeases returned error: %v", err)
+	}
+	if len(active) != 2 || active[0].ID != "near" || active[1].ID != "active" {
+		t.Fatalf("active leases = %#v, want near,active", leaseIDs(active))
+	}
+
+	expired, err := store.ListExpiredProcessingLeases(ctx, "sync-a", 10)
+	if err != nil {
+		t.Fatalf("ListExpiredProcessingLeases returned error: %v", err)
+	}
+	if len(expired) != 2 || expired[0].ID != "nolock" || expired[1].ID != "expired" {
+		t.Fatalf("expired leases = %#v, want nolock,expired", leaseIDs(expired))
+	}
+
+	near, err := store.ListNearExpiryLeases(ctx, "sync-a", 30*time.Second, 10)
+	if err != nil {
+		t.Fatalf("ListNearExpiryLeases returned error: %v", err)
+	}
+	if len(near) != 1 || near[0].ID != "near" {
+		t.Fatalf("near-expiry leases = %#v, want near", leaseIDs(near))
+	}
+
+	if _, err := store.ListNearExpiryLeases(ctx, "sync-a", -time.Second, 10); !errors.Is(err, deltaflow.ErrInvalidLeaseWindow) {
+		t.Fatalf("negative window error = %v, want %v", err, deltaflow.ErrInvalidLeaseWindow)
+	}
+}
+
 func TestJobMemoryStoreCreateRejectsOutboxJobWithoutDeltaID(t *testing.T) {
 	ctx := context.Background()
 	store := NewJobMemoryStore()
@@ -1031,6 +1078,17 @@ func enqueueDeltaForDispatch(t *testing.T, ctx context.Context, store *DeltaMemo
 		t.Fatalf("Enqueue returned error: %v", err)
 	}
 	return delta
+}
+
+func leaseIDs(jobs []*deltaflow.SyncJob) []deltaflow.SyncJobID {
+	ids := make([]deltaflow.SyncJobID, 0, len(jobs))
+	for _, job := range jobs {
+		if job == nil {
+			continue
+		}
+		ids = append(ids, job.ID)
+	}
+	return ids
 }
 
 type leaseTelemetryOwnershipCheck struct {

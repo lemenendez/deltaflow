@@ -296,6 +296,111 @@ func (s *JobMemoryStore) Get(ctx context.Context, jobID deltaflow.SyncJobID) (*d
 	return cloneSyncJob(job), true, nil
 }
 
+func (s *JobMemoryStore) ListActiveLeases(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now().UTC()
+	return s.selectProcessingLeasesLocked(syncID, limit, func(job *deltaflow.SyncJob) bool {
+		return job.LockedUntil != nil && job.LockedUntil.After(now)
+	}), nil
+}
+
+func (s *JobMemoryStore) ListExpiredProcessingLeases(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now().UTC()
+	return s.selectProcessingLeasesLocked(syncID, limit, func(job *deltaflow.SyncJob) bool {
+		return job.LockedUntil == nil || !job.LockedUntil.After(now)
+	}), nil
+}
+
+func (s *JobMemoryStore) ListNearExpiryLeases(ctx context.Context, syncID deltaflow.SyncID, within time.Duration, limit int) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if within < 0 {
+		return nil, deltaflow.ErrInvalidLeaseWindow
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now().UTC()
+	threshold := now.Add(within)
+	return s.selectProcessingLeasesLocked(syncID, limit, func(job *deltaflow.SyncJob) bool {
+		if job.LockedUntil == nil {
+			return false
+		}
+		return job.LockedUntil.After(now) && !job.LockedUntil.After(threshold)
+	}), nil
+}
+
+func (s *JobMemoryStore) selectProcessingLeasesLocked(syncID deltaflow.SyncID, limit int, predicate func(*deltaflow.SyncJob) bool) []*deltaflow.SyncJob {
+	ids := make([]deltaflow.SyncJobID, 0, len(s.jobs))
+	for id, job := range s.jobs {
+		if job.State != deltaflow.StateProcessing {
+			continue
+		}
+		if syncID != "" && job.SyncID != syncID {
+			continue
+		}
+		if !predicate(job) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		left := s.jobs[ids[i]]
+		right := s.jobs[ids[j]]
+
+		leftUntil := left.LockedUntil
+		rightUntil := right.LockedUntil
+		switch {
+		case leftUntil == nil && rightUntil != nil:
+			return true
+		case leftUntil != nil && rightUntil == nil:
+			return false
+		case leftUntil != nil && rightUntil != nil && !leftUntil.Equal(*rightUntil):
+			return leftUntil.Before(*rightUntil)
+		}
+
+		if !left.UpdatedAt.Equal(right.UpdatedAt) {
+			return left.UpdatedAt.Before(right.UpdatedAt)
+		}
+		return left.ID < right.ID
+	})
+
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+
+	leases := make([]*deltaflow.SyncJob, 0, len(ids))
+	for _, id := range ids {
+		leases = append(leases, cloneSyncJob(s.jobs[id]))
+	}
+	return leases
+}
+
 func (s *JobMemoryStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
 	telemetry := s.leaseTelemetry()
 

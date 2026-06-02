@@ -21,4 +21,6 @@ var (
 	ErrJobIDProvided = errors.New("job id must be empty")
 	// Returned by JobStore.Create when an outbox job reuses a mapped delta.
 	ErrDeltaAlreadyMapped = errors.New("delta already mapped to job")
+	// Returned by lease query helpers when the near-expiry window is negative.
+	ErrInvalidLeaseWindow = errors.New("lease window must be non-negative")
 )

@@ -136,6 +136,29 @@ type JobStore interface {
 	MarkDead(ctx context.Context, jobID SyncJobID, workerID string, err error) error
 }
 
+// JobLeaseQueries exposes optional operational lease query helpers.
+// Implementations may be type-asserted from JobStore where supported.
+type JobLeaseQueries interface {
+	// ListActiveLeases returns processing jobs with a non-expired lease.
+	// If syncID is empty, all syncs are considered. A non-positive limit returns no rows.
+	ListActiveLeases(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
+
+	// ListExpiredProcessingLeases returns processing jobs with expired or missing leases.
+	// If syncID is empty, all syncs are considered. A non-positive limit returns no rows.
+	ListExpiredProcessingLeases(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
+
+	// ListNearExpiryLeases returns processing jobs with leases expiring within the provided window.
+	// If syncID is empty, all syncs are considered. A non-positive limit returns no rows.
+	ListNearExpiryLeases(ctx context.Context, syncID SyncID, within time.Duration, limit int) ([]*SyncJob, error)
+}
+
+// Optional operational lease queries can be discovered by type assertion:
+//
+//	if leases, ok := jobStore.(JobLeaseQueries); ok {
+//		jobs, err := leases.ListActiveLeases(ctx, syncID, 100)
+//		...
+//	}
+
 type DispatchStore interface {
 	DispatchPending(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
 }
