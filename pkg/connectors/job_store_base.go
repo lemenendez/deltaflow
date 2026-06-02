@@ -3,6 +3,7 @@ package connectors
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -11,8 +12,10 @@ import (
 const defaultJobStoreMaxAttempts = 5
 
 type JobStoreBaseConfig struct {
-	Now         func() time.Time
-	MaxAttempts int
+	Now            func() time.Time
+	MaxAttempts    int
+	LeaseLogger    *slog.Logger
+	LeaseTelemetry deltaflow.LeaseTelemetry
 }
 
 type JobStoreBase struct {
@@ -27,6 +30,9 @@ func NewJobStoreBase(db *sql.DB, cfg JobStoreBaseConfig) JobStoreBase {
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = defaultJobStoreMaxAttempts
 	}
+	if cfg.LeaseTelemetry == nil {
+		cfg.LeaseTelemetry = deltaflow.NoopLeaseTelemetry()
+	}
 	return JobStoreBase{DB: db, cfg: cfg}
 }
 
@@ -36,6 +42,17 @@ func (b *JobStoreBase) Now() time.Time {
 
 func (b *JobStoreBase) DefaultMaxAttempts() int {
 	return b.cfg.MaxAttempts
+}
+
+func (b *JobStoreBase) LeaseLogger() *slog.Logger {
+	return b.cfg.LeaseLogger
+}
+
+func (b *JobStoreBase) LeaseTelemetry() deltaflow.LeaseTelemetry {
+	if b.cfg.LeaseTelemetry == nil {
+		return deltaflow.NoopLeaseTelemetry()
+	}
+	return b.cfg.LeaseTelemetry
 }
 
 func (b *JobStoreBase) PrepareJobForCreate(job deltaflow.SyncJob) (deltaflow.SyncJob, error) {
@@ -75,6 +92,10 @@ func (b *JobStoreBase) PrepareJobForCreate(job deltaflow.SyncJob) (deltaflow.Syn
 }
 
 func (b *JobStoreBase) ScanSyncJob(scanner rowScanner) (*deltaflow.SyncJob, bool, error) {
+	return b.ScanSyncJobWithExtras(scanner)
+}
+
+func (b *JobStoreBase) ScanSyncJobWithExtras(scanner rowScanner, extraTargets ...any) (*deltaflow.SyncJob, bool, error) {
 	var (
 		id                string
 		syncID            string
@@ -98,7 +119,7 @@ func (b *JobStoreBase) ScanSyncJob(scanner rowScanner) (*deltaflow.SyncJob, bool
 		updatedAt         time.Time
 	)
 
-	err := scanner.Scan(
+	dest := []any{
 		&id,
 		&syncID,
 		&deltaID,
@@ -119,7 +140,10 @@ func (b *JobStoreBase) ScanSyncJob(scanner rowScanner) (*deltaflow.SyncJob, bool
 		&deadAt,
 		&createdAt,
 		&updatedAt,
-	)
+	}
+	dest = append(dest, extraTargets...)
+
+	err := scanner.Scan(dest...)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -15,6 +16,29 @@ type JobStoreConfig = connectors.JobStoreBaseConfig
 type JobStore struct {
 	connectors.JobStoreBase
 }
+
+const syncJobReturningColumns = `
+RETURNING
+	id::text,
+	sync_id,
+	delta_id::text,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at,
+	locked_by,
+	locked_until,
+	ghost_detected,
+	synced_at,
+	dead_at,
+	created_at,
+	updated_at`
 
 func NewJobStore(db *sql.DB, cfg JobStoreConfig) *JobStore {
 	return &JobStore{JobStoreBase: connectors.NewJobStoreBase(db, cfg)}
@@ -234,6 +258,12 @@ func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, worke
 		return nil, err
 	}
 	if lockFor <= 0 {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultInvalidLockFor)
+		s.logLease("lease_claim_rejected",
+			"sync_id", syncID,
+			"worker_id", workerID,
+			"reason", "invalid_lock_for",
+		)
 		return nil, deltaflow.ErrInvalidLockFor
 	}
 
@@ -242,7 +272,12 @@ func (s *JobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, worke
 
 	row := s.DB.QueryRowContext(ctx, `
 WITH candidate AS (
-	SELECT id
+		SELECT
+			id,
+			(
+				state = 'processing'
+				AND (locked_until IS NULL OR locked_until <= $1)
+			) AS reclaimed
 	FROM deltaflow.deltaflow_sync_jobs
 	WHERE
 		sync_id = $2
@@ -288,15 +323,47 @@ RETURNING
 	j.synced_at,
 	j.dead_at,
 	j.created_at,
-	j.updated_at`, now, syncID, workerID, lockedUntil)
+	j.updated_at,
+	candidate.reclaimed`, now, syncID, workerID, lockedUntil)
 
-	job, ok, err := s.ScanSyncJob(row)
+	var reclaimed bool
+	job, ok, err := s.ScanSyncJobWithExtras(row, &reclaimed)
 	if err != nil {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultError)
+		s.logLease("lease_claim_failed",
+			"sync_id", syncID,
+			"worker_id", workerID,
+			"reason", leaseResult(err),
+			"error", err.Error(),
+		)
 		return nil, err
 	}
 	if !ok {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultEmpty)
+		s.logLease("lease_claim_empty",
+			"sync_id", syncID,
+			"worker_id", workerID,
+		)
 		return nil, nil
 	}
+	s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultSuccess)
+	if reclaimed {
+		s.LeaseTelemetry().ObserveLeaseReclaim()
+	}
+	reason := "ready"
+	if reclaimed {
+		reason = "expired_reclaimed"
+	}
+	s.logLease("lease_claimed",
+		"sync_id", syncID,
+		"job_id", job.ID,
+		"worker_id", workerID,
+		"state", job.State,
+		"attempt_count", job.AttemptCount,
+		"locked_until", job.LockedUntil,
+		"lease_ms_remaining", int64(lockFor/time.Millisecond),
+		"reason", reason,
+	)
 	return job, nil
 }
 
@@ -305,12 +372,19 @@ func (s *JobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, wo
 		return err
 	}
 	if lockFor <= 0 {
+		s.LeaseTelemetry().ObserveLeaseRenew(deltaflow.LeaseTelemetryResultInvalidLockFor, 0)
+		s.logLease("lease_renew_rejected",
+			"job_id", jobID,
+			"worker_id", workerID,
+			"reason", "invalid_lock_for",
+		)
 		return deltaflow.ErrInvalidLockFor
 	}
 
 	now := s.Now()
 	lockedUntil := now.Add(lockFor)
-	return s.update(ctx, jobID, `
+	start := time.Now()
+	err := s.update(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	locked_until = $2,
@@ -319,10 +393,33 @@ WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $4
 	AND locked_until > $3`, lockedUntil, now, workerID)
+	result := leaseResult(err)
+	s.LeaseTelemetry().ObserveLeaseRenew(result, time.Since(start))
+	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(deltaflow.LeaseTelemetryTransitionRenewLease, deltaflow.LeaseTelemetryOwnershipRejected)
+	}
+	if err != nil {
+		s.logLease("lease_renew_failed",
+			"job_id", jobID,
+			"worker_id", workerID,
+			"reason", result,
+			"error", err.Error(),
+		)
+		return err
+	}
+	s.LeaseTelemetry().ObserveLeaseOwnershipCheck(deltaflow.LeaseTelemetryTransitionRenewLease, deltaflow.LeaseTelemetryOwnershipOwned)
+	s.logLease("lease_renewed",
+		"job_id", jobID,
+		"worker_id", workerID,
+		"locked_until", lockedUntil,
+		"lease_ms_remaining", int64(lockFor/time.Millisecond),
+	)
+	return nil
 }
 
 func (s *JobStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, ghostDetected bool) error {
-	return s.update(ctx, jobID, `
+	now := s.Now()
+	updated, err := s.updateAndReturn(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	state = 'synced',
@@ -334,13 +431,20 @@ SET
 WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $4
-	AND locked_until > $3`, ghostDetected, s.Now(), workerID)
+	AND locked_until > $3`+syncJobReturningColumns, ghostDetected, now, workerID)
+	s.observeOwnershipResult(deltaflow.LeaseTelemetryTransitionMarkSynced, err)
+	if err != nil {
+		s.logLeaseTransitionRejected(ctx, deltaflow.LeaseTelemetryTransitionMarkSynced, jobID, workerID, err, now)
+		return err
+	}
+	s.logLeaseTransitionApplied(deltaflow.LeaseTelemetryTransitionMarkSynced, updated, workerID, now)
+	return nil
 }
 
 func (s *JobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
 	now := s.Now()
 	msg := connectors.ErrorMessage(err)
-	return s.update(ctx, jobID, `
+	updated, updateErr := s.updateAndReturn(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	state = 'retrying',
@@ -353,13 +457,22 @@ SET
 WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $5
-	AND locked_until > $4`, msg, nextRunAt.UTC(), now, workerID)
+	AND locked_until > $4`+syncJobReturningColumns, msg, nextRunAt.UTC(), now, workerID)
+	s.observeOwnershipResult(deltaflow.LeaseTelemetryTransitionMarkRetrying, updateErr)
+	if updateErr != nil {
+		s.logLeaseTransitionRejected(ctx, deltaflow.LeaseTelemetryTransitionMarkRetrying, jobID, workerID, updateErr, now)
+		return updateErr
+	}
+	s.logLeaseTransitionApplied(deltaflow.LeaseTelemetryTransitionMarkRetrying, updated, workerID, now,
+		"reason", msg,
+	)
+	return nil
 }
 
 func (s *JobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
 	now := s.Now()
 	msg := connectors.ErrorMessage(err)
-	return s.update(ctx, jobID, `
+	updated, updateErr := s.updateAndReturn(ctx, jobID, `
 UPDATE deltaflow.deltaflow_sync_jobs
 SET
 	state = 'dead',
@@ -372,7 +485,44 @@ SET
 WHERE id = $1::uuid
 	AND state = 'processing'
 	AND locked_by = $4
-	AND locked_until > $3`, msg, now, workerID)
+	AND locked_until > $3`+syncJobReturningColumns, msg, now, workerID)
+	s.observeOwnershipResult(deltaflow.LeaseTelemetryTransitionMarkDead, updateErr)
+	if updateErr != nil {
+		s.logLeaseTransitionRejected(ctx, deltaflow.LeaseTelemetryTransitionMarkDead, jobID, workerID, updateErr, now)
+		return updateErr
+	}
+	s.logLeaseTransitionApplied(deltaflow.LeaseTelemetryTransitionMarkDead, updated, workerID, now,
+		"reason", msg,
+	)
+	return nil
+}
+
+func (s *JobStore) updateAndReturn(ctx context.Context, jobID deltaflow.SyncJobID, query string, args ...any) (*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	allArgs := make([]any, 0, len(args)+1)
+	allArgs = append(allArgs, jobID)
+	allArgs = append(allArgs, args...)
+
+	row := s.DB.QueryRowContext(ctx, query, allArgs...)
+	job, ok, err := s.ScanSyncJob(row)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return job, nil
+	}
+
+	exists, err := s.jobExists(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, deltaflow.ErrJobNotFound
+	}
+	return nil, deltaflow.ErrJobLeaseNotOwned
 }
 
 func (s *JobStore) update(ctx context.Context, jobID deltaflow.SyncJobID, query string, args ...any) error {
@@ -430,4 +580,94 @@ func isOutboxDeltaMappedViolation(err error) bool {
 	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "deltaflow_sync_jobs_outbox_delta_unique")
+}
+
+func (s *JobStore) observeOwnershipResult(transition string, err error) {
+	if err == nil {
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, deltaflow.LeaseTelemetryOwnershipOwned)
+		return
+	}
+	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		s.LeaseTelemetry().ObserveLeaseOwnershipCheck(transition, deltaflow.LeaseTelemetryOwnershipRejected)
+	}
+}
+
+func (s *JobStore) logLeaseTransitionApplied(transition string, job *deltaflow.SyncJob, workerID string, now time.Time, extra ...any) {
+	if job == nil {
+		return
+	}
+	attrs := []any{
+		"transition", transition,
+		"sync_id", job.SyncID,
+		"job_id", job.ID,
+		"worker_id", workerID,
+		"state", job.State,
+		"attempt_count", job.AttemptCount,
+		"locked_until", job.LockedUntil,
+		"lease_ms_remaining", leaseMSRemaining(job.LockedUntil, now),
+	}
+	attrs = append(attrs, extra...)
+	s.logLease("lease_transition_applied", attrs...)
+}
+
+func (s *JobStore) logLeaseTransitionRejected(ctx context.Context, transition string, jobID deltaflow.SyncJobID, workerID string, updateErr error, now time.Time) {
+	attrs := []any{
+		"transition", transition,
+		"job_id", jobID,
+		"worker_id", workerID,
+		"reason", leaseResult(updateErr),
+	}
+
+	current, ok, getErr := s.Get(ctx, jobID)
+	if getErr != nil {
+		attrs = append(attrs, "lookup_error", getErr.Error())
+	} else if ok {
+		attrs = append(attrs,
+			"sync_id", current.SyncID,
+			"state", current.State,
+			"attempt_count", current.AttemptCount,
+			"locked_until", current.LockedUntil,
+			"lease_ms_remaining", leaseMSRemaining(current.LockedUntil, now),
+		)
+	}
+
+	s.logLease("lease_transition_rejected", attrs...)
+}
+
+func (s *JobStore) logLease(event string, attrs ...any) {
+	logger := s.LeaseLogger()
+	if logger == nil {
+		return
+	}
+	eventAttrs := make([]any, 0, len(attrs)+2)
+	eventAttrs = append(eventAttrs, "event", event)
+	eventAttrs = append(eventAttrs, attrs...)
+	logger.Info("lease event", eventAttrs...)
+}
+
+func leaseResult(err error) string {
+	if err == nil {
+		return deltaflow.LeaseTelemetryResultSuccess
+	}
+	if errors.Is(err, deltaflow.ErrJobNotFound) {
+		return deltaflow.LeaseTelemetryResultJobNotFound
+	}
+	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		return deltaflow.LeaseTelemetryResultLeaseNotOwned
+	}
+	if errors.Is(err, deltaflow.ErrInvalidLockFor) {
+		return deltaflow.LeaseTelemetryResultInvalidLockFor
+	}
+	return deltaflow.LeaseTelemetryResultError
+}
+
+func leaseMSRemaining(lockedUntil *time.Time, now time.Time) int64 {
+	if lockedUntil == nil {
+		return 0
+	}
+	remaining := lockedUntil.Sub(now)
+	if remaining < 0 {
+		return 0
+	}
+	return int64(remaining / time.Millisecond)
 }
