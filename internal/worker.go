@@ -34,7 +34,6 @@ type SyncWorker struct {
 	Projector  deltaflow.Projector
 	Applier    deltaflow.ProjectionApplier
 	Logger     *slog.Logger
-	Telemetry  deltaflow.LeaseTelemetry
 
 	SyncID   deltaflow.SyncID
 	WorkerID string
@@ -206,7 +205,7 @@ func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFu
 				w.logLease("worker_heartbeat_renew_failed",
 					"job_id", jobID,
 					"worker_id", w.WorkerID,
-					"reason", leaseFailureReason(err),
+					"reason", leaseResult(err),
 					"error", err.Error(),
 				)
 				select {
@@ -251,20 +250,4 @@ func (w *SyncWorker) logLease(event string, attrs ...any) {
 	eventAttrs = append(eventAttrs, "event", event)
 	eventAttrs = append(eventAttrs, attrs...)
 	w.Logger.Info("lease event", eventAttrs...)
-}
-
-func leaseFailureReason(err error) string {
-	if err == nil {
-		return "success"
-	}
-	if errors.Is(err, deltaflow.ErrJobNotFound) {
-		return "job_not_found"
-	}
-	if errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
-		return "lease_not_owned"
-	}
-	if errors.Is(err, deltaflow.ErrInvalidLockFor) {
-		return "invalid_lock_for"
-	}
-	return "error"
 }

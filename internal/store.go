@@ -393,8 +393,9 @@ func (s *JobMemoryStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJob
 	}
 
 	start := time.Now()
+	var lockedUntil time.Time
 	err := s.updateOwned(ctx, jobID, workerID, deltaflow.LeaseTelemetryTransitionRenewLease, func(job *deltaflow.SyncJob, now time.Time) {
-		lockedUntil := now.Add(lockFor)
+		lockedUntil = now.Add(lockFor)
 		job.LockedUntil = &lockedUntil
 	})
 	result := leaseResult(err)
@@ -411,6 +412,7 @@ func (s *JobMemoryStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJob
 	s.logLease("lease_renewed",
 		"job_id", jobID,
 		"worker_id", workerID,
+		"locked_until", lockedUntil,
 		"lease_ms_remaining", int64(lockFor/time.Millisecond),
 	)
 	return nil
