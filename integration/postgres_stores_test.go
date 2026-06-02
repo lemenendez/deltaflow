@@ -347,3 +347,183 @@ func TestPostgresContainer_RenewLeaseAndOwnershipChecks(t *testing.T) {
 		t.Fatalf("RenewLease after retrying error = %v, want %v", err, deltaflow.ErrJobLeaseNotOwned)
 	}
 }
+
+func TestPostgresContainer_LeaseQueryHelpers(t *testing.T) {
+	ctx, db, _, _, _ := withPostgresStores(t)
+
+	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)
+	jobStore := pgstore.NewJobStore(db, pgstore.JobStoreConfig{
+		MaxAttempts: 3,
+		Now:         func() time.Time { return now },
+	})
+
+	newJob := func(id string, syncID deltaflow.SyncID) *deltaflow.SyncJob {
+		t.Helper()
+		created, err := jobStore.Create(ctx, deltaflow.SyncJob{
+			SyncID:         syncID,
+			Origin:         deltaflow.JobOriginManual,
+			ProjectionType: "Contact",
+			ProjectionKey:  contactKey(id),
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+		return created
+	}
+
+	near := newJob("near", syncA)
+	active := newJob("active", syncA)
+	expired := newJob("expired", syncA)
+	nolock := newJob("nolock", syncA)
+	otherSync := newJob("other-sync", syncB)
+	pending := newJob("pending", syncA)
+
+	worker := "worker-1"
+	nearUntil := now.Add(20 * time.Second)
+	activeUntil := now.Add(10 * time.Minute)
+	expiredUntil := now.Add(-10 * time.Second)
+
+	mustSetLeaseState(t, ctx, db, near.ID, deltaflow.StateProcessing, worker, &nearUntil, now.Add(-3*time.Second))
+	mustSetLeaseState(t, ctx, db, active.ID, deltaflow.StateProcessing, worker, &activeUntil, now.Add(-2*time.Second))
+	mustSetLeaseState(t, ctx, db, expired.ID, deltaflow.StateProcessing, worker, &expiredUntil, now.Add(-1*time.Second))
+	mustSetLeaseState(t, ctx, db, nolock.ID, deltaflow.StateProcessing, worker, nil, now)
+	mustSetLeaseState(t, ctx, db, otherSync.ID, deltaflow.StateProcessing, worker, &nearUntil, now)
+	mustSetLeaseState(t, ctx, db, pending.ID, deltaflow.StatePending, "", nil, now)
+
+	activeLeases, err := jobStore.ListActiveLeases(ctx, syncA, 10)
+	if err != nil {
+		t.Fatalf("ListActiveLeases: %v", err)
+	}
+	if got := leaseIDs(activeLeases); len(got) != 2 || got[0] != string(near.ID) || got[1] != string(active.ID) {
+		t.Fatalf("active leases = %v, want [%s %s]", got, near.ID, active.ID)
+	}
+
+	expiredLeases, err := jobStore.ListExpiredProcessingLeases(ctx, syncA, 10)
+	if err != nil {
+		t.Fatalf("ListExpiredProcessingLeases: %v", err)
+	}
+	if got := leaseIDs(expiredLeases); len(got) != 2 || got[0] != string(nolock.ID) || got[1] != string(expired.ID) {
+		t.Fatalf("expired leases = %v, want [%s %s]", got, nolock.ID, expired.ID)
+	}
+
+	nearExpiry, err := jobStore.ListNearExpiryLeases(ctx, syncA, 30*time.Second, 10)
+	if err != nil {
+		t.Fatalf("ListNearExpiryLeases: %v", err)
+	}
+	if got := leaseIDs(nearExpiry); len(got) != 1 || got[0] != string(near.ID) {
+		t.Fatalf("near-expiry leases = %v, want [%s]", got, near.ID)
+	}
+
+	if _, err := jobStore.ListNearExpiryLeases(ctx, syncA, -1*time.Second, 10); !errors.Is(err, deltaflow.ErrInvalidLeaseWindow) {
+		t.Fatalf("negative window error = %v, want %v", err, deltaflow.ErrInvalidLeaseWindow)
+	}
+}
+
+func TestPostgresContainer_OperatorLeaseActions(t *testing.T) {
+	ctx, db, _, _, _ := withPostgresStores(t)
+
+	now := time.Date(2026, 6, 2, 16, 0, 0, 0, time.UTC)
+	jobStore := pgstore.NewJobStore(db, pgstore.JobStoreConfig{
+		MaxAttempts: 3,
+		Now:         func() time.Time { return now },
+	})
+
+	createProcessingJob := func(id string, lockedUntil time.Time) *deltaflow.SyncJob {
+		t.Helper()
+		created, err := jobStore.Create(ctx, deltaflow.SyncJob{
+			SyncID:         syncA,
+			Origin:         deltaflow.JobOriginManual,
+			ProjectionType: "Contact",
+			ProjectionKey:  contactKey(id),
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+		mustSetLeaseState(t, ctx, db, created.ID, deltaflow.StateProcessing, "worker-1", &lockedUntil, now.Add(-time.Minute))
+		return created
+	}
+
+	expired := createProcessingJob("expired-op", now.Add(-10*time.Second))
+	active := createProcessingJob("active-op", now.Add(1*time.Minute))
+
+	if err := jobStore.ForceReleaseExpiredLease(ctx, expired.ID, "manual recovery"); err != nil {
+		t.Fatalf("ForceReleaseExpiredLease: %v", err)
+	}
+	released, ok, err := jobStore.Get(ctx, expired.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get released: ok=%v err=%v", ok, err)
+	}
+	if released.LockedBy != nil || released.LockedUntil != nil {
+		t.Fatalf("released lock = (%v, %v), want nil,nil", released.LockedBy, released.LockedUntil)
+	}
+	if released.LastError == nil || *released.LastError != "operator_force_release: manual recovery" {
+		t.Fatalf("released last_error = %v, want operator_force_release", released.LastError)
+	}
+
+	nextRun := now.Add(30 * time.Second)
+	if err := jobStore.RequeueExpiredLease(ctx, expired.ID, nextRun, "requeue for retry"); err != nil {
+		t.Fatalf("RequeueExpiredLease: %v", err)
+	}
+	requeued, ok, err := jobStore.Get(ctx, expired.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get requeued: ok=%v err=%v", ok, err)
+	}
+	if requeued.State != deltaflow.StateRetrying {
+		t.Fatalf("requeued state = %s, want %s", requeued.State, deltaflow.StateRetrying)
+	}
+	if !requeued.AvailableAt.Equal(nextRun) {
+		t.Fatalf("requeued available_at = %v, want %v", requeued.AvailableAt, nextRun)
+	}
+	if requeued.LastError == nil || *requeued.LastError != "operator_requeue: requeue for retry" {
+		t.Fatalf("requeued last_error = %v, want operator_requeue", requeued.LastError)
+	}
+
+	if err := jobStore.ForceReleaseExpiredLease(ctx, active.ID, "manual release"); !errors.Is(err, deltaflow.ErrJobLeaseNotExpired) {
+		t.Fatalf("ForceReleaseExpiredLease active lease error = %v, want %v", err, deltaflow.ErrJobLeaseNotExpired)
+	}
+	if err := jobStore.RequeueExpiredLease(ctx, active.ID, nextRun, "manual requeue"); !errors.Is(err, deltaflow.ErrJobLeaseNotExpired) {
+		t.Fatalf("RequeueExpiredLease active lease error = %v, want %v", err, deltaflow.ErrJobLeaseNotExpired)
+	}
+	if err := jobStore.ForceReleaseExpiredLease(ctx, expired.ID, "   "); !errors.Is(err, deltaflow.ErrAuditReasonRequired) {
+		t.Fatalf("ForceReleaseExpiredLease empty reason error = %v, want %v", err, deltaflow.ErrAuditReasonRequired)
+	}
+}
+
+func mustSetLeaseState(t *testing.T, ctx context.Context, db *sql.DB, jobID deltaflow.SyncJobID, state deltaflow.SyncJobState, workerID string, lockedUntil *time.Time, updatedAt time.Time) {
+	t.Helper()
+
+	var lockedBy any
+	if workerID != "" {
+		lockedBy = workerID
+	}
+
+	res, err := db.ExecContext(ctx, `
+UPDATE deltaflow.deltaflow_sync_jobs
+SET
+	state = $2,
+	locked_by = $3,
+	locked_until = $4,
+	updated_at = $5
+WHERE id = $1::uuid`, jobID, state, lockedBy, lockedUntil, updatedAt.UTC())
+	if err != nil {
+		t.Fatalf("set lease state %s: %v", jobID, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		t.Fatalf("rows affected for %s: %v", jobID, err)
+	}
+	if affected != 1 {
+		t.Fatalf("rows affected for %s = %d, want 1", jobID, affected)
+	}
+}
+
+func leaseIDs(jobs []*deltaflow.SyncJob) []string {
+	out := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		if job == nil {
+			continue
+		}
+		out = append(out, string(job.ID))
+	}
+	return out
+}
