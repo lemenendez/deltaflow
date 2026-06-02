@@ -558,6 +558,81 @@ func TestJobMemoryStoreOwnershipRejectedTelemetry(t *testing.T) {
 	}
 }
 
+func TestJobMemoryStoreRenewLeaseTelemetrySuccess(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	telemetry := &leaseTelemetrySpy{}
+	store.LeaseTelemetry = telemetry
+	base := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return base }
+
+	lockedBy := "worker-1"
+	lockedUntil := base.Add(time.Minute)
+	store.jobs["job-1"] = &deltaflow.SyncJob{
+		ID:          "job-1",
+		SyncID:      "sync",
+		Origin:      deltaflow.JobOriginManual,
+		State:       deltaflow.StateProcessing,
+		LockedBy:    &lockedBy,
+		LockedUntil: &lockedUntil,
+		AvailableAt: base.Add(-time.Minute),
+		CreatedAt:   base.Add(-2 * time.Minute),
+		UpdatedAt:   base.Add(-time.Minute),
+	}
+
+	if err := store.RenewLease(ctx, "job-1", lockedBy, 2*time.Minute); err != nil {
+		t.Fatalf("RenewLease returned error: %v", err)
+	}
+
+	if len(telemetry.renewResults) != 1 || telemetry.renewResults[0] != deltaflow.LeaseTelemetryResultSuccess {
+		t.Fatalf("renew results = %#v, want [%s]", telemetry.renewResults, deltaflow.LeaseTelemetryResultSuccess)
+	}
+	if len(telemetry.renewDurations) != 1 {
+		t.Fatalf("renew durations = %#v, want 1 entry", telemetry.renewDurations)
+	}
+	if telemetry.renewDurations[0] <= 0 {
+		t.Fatalf("renew duration = %v, want > 0", telemetry.renewDurations[0])
+	}
+}
+
+func TestJobMemoryStoreRenewLeaseTelemetryOwnershipRejected(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	telemetry := &leaseTelemetrySpy{}
+	store.LeaseTelemetry = telemetry
+	base := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return base }
+
+	lockedBy := "worker-1"
+	lockedUntil := base.Add(time.Minute)
+	store.jobs["job-1"] = &deltaflow.SyncJob{
+		ID:          "job-1",
+		SyncID:      "sync",
+		Origin:      deltaflow.JobOriginManual,
+		State:       deltaflow.StateProcessing,
+		LockedBy:    &lockedBy,
+		LockedUntil: &lockedUntil,
+		AvailableAt: base.Add(-time.Minute),
+		CreatedAt:   base.Add(-2 * time.Minute),
+		UpdatedAt:   base.Add(-time.Minute),
+	}
+
+	err := store.RenewLease(ctx, "job-1", "worker-2", 2*time.Minute)
+	if !errors.Is(err, deltaflow.ErrJobLeaseNotOwned) {
+		t.Fatalf("RenewLease wrong owner error = %v, want %v", err, deltaflow.ErrJobLeaseNotOwned)
+	}
+
+	if len(telemetry.renewResults) != 1 || telemetry.renewResults[0] != deltaflow.LeaseTelemetryResultLeaseNotOwned {
+		t.Fatalf("renew results = %#v, want [%s]", telemetry.renewResults, deltaflow.LeaseTelemetryResultLeaseNotOwned)
+	}
+	if len(telemetry.renewDurations) != 1 {
+		t.Fatalf("renew durations = %#v, want 1 entry", telemetry.renewDurations)
+	}
+	if telemetry.renewDurations[0] <= 0 {
+		t.Fatalf("renew duration = %v, want > 0", telemetry.renewDurations[0])
+	}
+}
+
 func TestJobMemoryStoreRenewLeaseUsesSingleNowForOwnershipAndUpdate(t *testing.T) {
 	ctx := context.Background()
 	store := NewJobMemoryStore()

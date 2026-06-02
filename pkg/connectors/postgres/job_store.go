@@ -403,6 +403,7 @@ WHERE id = $1::uuid
 			"job_id", jobID,
 			"worker_id", workerID,
 			"reason", result,
+			"error", err.Error(),
 		)
 		return err
 	}

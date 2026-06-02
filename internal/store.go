@@ -452,51 +452,74 @@ func (s *JobMemoryStore) updateOwned(ctx context.Context, jobID deltaflow.SyncJo
 		return err
 	}
 
+	telemetry := s.leaseTelemetry()
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	var (
+		outErr          error
+		ownershipResult string
+		logEvent        string
+		logAttrs        []any
+	)
 
 	job, ok := s.jobs[jobID]
 	if !ok {
-		s.logLease("lease_transition_rejected",
+		outErr = deltaflow.ErrJobNotFound
+		logEvent = "lease_transition_rejected"
+		logAttrs = []any{
 			"transition", transition,
 			"job_id", jobID,
 			"worker_id", workerID,
 			"reason", "job_not_found",
-		)
-		return deltaflow.ErrJobNotFound
+		}
+		s.mu.Unlock()
+		s.logLease(logEvent, logAttrs...)
+		return outErr
 	}
 	now := s.now().UTC()
 	if !jobLeaseOwned(job, now, workerID) {
-		s.leaseTelemetry().ObserveLeaseOwnershipCheck(transition, deltaflow.LeaseTelemetryOwnershipRejected)
+		outErr = deltaflow.ErrJobLeaseNotOwned
+		ownershipResult = deltaflow.LeaseTelemetryOwnershipRejected
+		lockedUntil := cloneTimePtr(job.LockedUntil)
 		reason := "lease_not_owned"
-		s.logLease("lease_transition_rejected",
+		logEvent = "lease_transition_rejected"
+		logAttrs = []any{
 			"transition", transition,
 			"sync_id", job.SyncID,
 			"job_id", job.ID,
 			"worker_id", workerID,
 			"state", job.State,
 			"attempt_count", job.AttemptCount,
-			"locked_until", job.LockedUntil,
-			"lease_ms_remaining", leaseMSRemaining(job.LockedUntil, now),
+			"locked_until", lockedUntil,
+			"lease_ms_remaining", leaseMSRemaining(lockedUntil, now),
 			"reason", reason,
-		)
-		return deltaflow.ErrJobLeaseNotOwned
+		}
+		s.mu.Unlock()
+		telemetry.ObserveLeaseOwnershipCheck(transition, ownershipResult)
+		s.logLease(logEvent, logAttrs...)
+		return outErr
 	}
-	s.leaseTelemetry().ObserveLeaseOwnershipCheck(transition, deltaflow.LeaseTelemetryOwnershipOwned)
+	ownershipResult = deltaflow.LeaseTelemetryOwnershipOwned
 
 	fn(job, now)
 	job.UpdatedAt = now
-
-	s.logLease("lease_transition_applied",
+	lockedUntil := cloneTimePtr(job.LockedUntil)
+	logEvent = "lease_transition_applied"
+	logAttrs = []any{
 		"transition", transition,
 		"sync_id", job.SyncID,
 		"job_id", job.ID,
 		"worker_id", workerID,
 		"state", job.State,
 		"attempt_count", job.AttemptCount,
-		"locked_until", job.LockedUntil,
-		"lease_ms_remaining", leaseMSRemaining(job.LockedUntil, now),
-	)
+		"locked_until", lockedUntil,
+		"lease_ms_remaining", leaseMSRemaining(lockedUntil, now),
+	}
+
+	s.mu.Unlock()
+
+	telemetry.ObserveLeaseOwnershipCheck(transition, ownershipResult)
+	s.logLease(logEvent, logAttrs...)
 
 	return nil
 }
