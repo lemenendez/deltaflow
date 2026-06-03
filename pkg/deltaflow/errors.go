@@ -25,6 +25,6 @@ var (
 	ErrInvalidLeaseWindow = errors.New("lease window must be non-negative")
 	// Returned by operator lease actions when an audit reason is empty.
 	ErrAuditReasonRequired = errors.New("audit reason is required")
-	// Returned by operator lease actions when the target job lease is not expired.
-	ErrJobLeaseNotExpired = errors.New("job lease not expired")
+	// Returned by operator lease actions when the target job is not eligible for expired-lease actions.
+	ErrJobLeaseNotExpired = errors.New("job not eligible for expired lease action")
 )
