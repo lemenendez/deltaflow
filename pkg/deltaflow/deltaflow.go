@@ -148,6 +148,7 @@ type JobLeaseQueries interface {
 	ListExpiredProcessingLeases(ctx context.Context, syncID SyncID, limit int) ([]*SyncJob, error)
 
 	// ListNearExpiryLeases returns processing jobs with leases expiring within the provided window.
+	// Returns ErrInvalidLeaseWindow when within is negative.
 	// If syncID is empty, all syncs are considered. A non-positive limit returns no rows.
 	ListNearExpiryLeases(ctx context.Context, syncID SyncID, within time.Duration, limit int) ([]*SyncJob, error)
 }
