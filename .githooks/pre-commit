@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "[pre-commit] Formatting Go files with gofmt"
+go_files="$(git ls-files '*.go')"
+if [[ -n "$go_files" ]]; then
+  while IFS= read -r file; do
+    gofmt -w "$file"
+    git add "$file"
+  done <<< "$go_files"
+fi
+
+echo "[pre-commit] Running go vet"
+go vet ./...
+
+if command -v golangci-lint >/dev/null 2>&1; then
+  echo "[pre-commit] Running golangci-lint"
+  golangci-lint run ./...
+else
+  echo "[pre-commit] golangci-lint not found, skipping"
+fi
