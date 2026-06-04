@@ -19,6 +19,7 @@ migrate: pgcompat
 	$(DC) exec -T $(PG_SERVICE) psql -U deltaflow -d deltaflow -v ON_ERROR_STOP=1 -f /workspace/pkg/connectors/postgres/migrations/000003_align_outbox_unique_index.sql
 	$(DC) exec -T $(PG_SERVICE) psql -U deltaflow -d deltaflow -v ON_ERROR_STOP=1 -f /workspace/pkg/connectors/postgres/migrations/000004_scope_pending_index_by_sync_id.sql
 	$(DC) exec -T $(PG_SERVICE) psql -U deltaflow -d deltaflow -v ON_ERROR_STOP=1 -f /workspace/pkg/connectors/postgres/migrations/000005_scope_claim_index_by_sync_id.sql
+	$(DC) exec -T $(PG_SERVICE) psql -U deltaflow -d deltaflow -v ON_ERROR_STOP=1 -f /workspace/pkg/connectors/postgres/migrations/000006_add_processing_lease_ops_index.sql
 
 run: migrate
 	$(DC) run --rm playground

@@ -69,6 +69,7 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		"state", job.State,
 		"attempt_count", job.AttemptCount,
 		"locked_until", job.LockedUntil,
+		"lease_ms_remaining", leaseMSRemaining(job.LockedUntil, time.Now().UTC()),
 	)
 
 	jobCtx, cancel := context.WithCancel(ctx)
@@ -196,6 +197,7 @@ func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFu
 		select {
 		case <-ctx.Done():
 			w.logLease("worker_heartbeat_stopped",
+				"sync_id", w.SyncID,
 				"job_id", jobID,
 				"worker_id", w.WorkerID,
 			)
@@ -203,6 +205,7 @@ func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFu
 		case <-ticker.C:
 			if err := w.JobStore.RenewLease(ctx, jobID, w.WorkerID, w.LockFor); err != nil {
 				w.logLease("worker_heartbeat_renew_failed",
+					"sync_id", w.SyncID,
 					"job_id", jobID,
 					"worker_id", w.WorkerID,
 					"reason", leaseResult(err),

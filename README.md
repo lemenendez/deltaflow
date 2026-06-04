@@ -15,3 +15,18 @@ Standalone examples live under `playground/`.
 The concrete Postgres delta store provides two clear write paths:
 - `Enqueue(ctx, delta)` for standalone inserts (tests, backfills, CLI/admin tools).
 - `EnqueueInTx(ctx, tx, delta)` when app writes and outbox inserts must share the same SQL transaction.
+
+## Development Hooks
+
+Set up the repo pre-commit hook:
+
+```bash
+./scripts/setup-git-hooks.sh
+```
+
+The hook runs:
+
+- `gofmt -w` on staged Go files (and re-stages formatting changes)
+- fails if a staged Go file also has unstaged edits (to protect partial staging)
+- `go vet ./...`
+- `golangci-lint run ./...` when `golangci-lint` is available on PATH

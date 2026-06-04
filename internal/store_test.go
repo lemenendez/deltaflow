@@ -680,6 +680,109 @@ func TestJobMemoryStoreRenewLeaseUsesSingleNowForOwnershipAndUpdate(t *testing.T
 	}
 }
 
+func TestJobMemoryStoreLeaseQueryHelpers(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	worker := "worker-1"
+	nearUntil := now.Add(20 * time.Second)
+	activeUntil := now.Add(10 * time.Minute)
+	expiredUntil := now.Add(-10 * time.Second)
+
+	store.jobs["near"] = &deltaflow.SyncJob{ID: "near", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &nearUntil, UpdatedAt: now.Add(-3 * time.Second)}
+	store.jobs["active"] = &deltaflow.SyncJob{ID: "active", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &activeUntil, UpdatedAt: now.Add(-2 * time.Second)}
+	store.jobs["expired"] = &deltaflow.SyncJob{ID: "expired", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &expiredUntil, UpdatedAt: now.Add(-time.Second)}
+	store.jobs["nolock"] = &deltaflow.SyncJob{ID: "nolock", SyncID: "sync-a", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: nil, UpdatedAt: now}
+	store.jobs["other-sync"] = &deltaflow.SyncJob{ID: "other-sync", SyncID: "sync-b", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &nearUntil, UpdatedAt: now}
+	store.jobs["pending"] = &deltaflow.SyncJob{ID: "pending", SyncID: "sync-a", State: deltaflow.StatePending, UpdatedAt: now}
+
+	active, err := store.ListActiveLeases(ctx, "sync-a", 10)
+	if err != nil {
+		t.Fatalf("ListActiveLeases returned error: %v", err)
+	}
+	if len(active) != 2 || active[0].ID != "near" || active[1].ID != "active" {
+		t.Fatalf("active leases = %#v, want near,active", leaseIDs(active))
+	}
+
+	expired, err := store.ListExpiredProcessingLeases(ctx, "sync-a", 10)
+	if err != nil {
+		t.Fatalf("ListExpiredProcessingLeases returned error: %v", err)
+	}
+	if len(expired) != 2 || expired[0].ID != "nolock" || expired[1].ID != "expired" {
+		t.Fatalf("expired leases = %#v, want nolock,expired", leaseIDs(expired))
+	}
+
+	near, err := store.ListNearExpiryLeases(ctx, "sync-a", 30*time.Second, 10)
+	if err != nil {
+		t.Fatalf("ListNearExpiryLeases returned error: %v", err)
+	}
+	if len(near) != 1 || near[0].ID != "near" {
+		t.Fatalf("near-expiry leases = %#v, want near", leaseIDs(near))
+	}
+
+	if _, err := store.ListNearExpiryLeases(ctx, "sync-a", -time.Second, 10); !errors.Is(err, deltaflow.ErrInvalidLeaseWindow) {
+		t.Fatalf("negative window error = %v, want %v", err, deltaflow.ErrInvalidLeaseWindow)
+	}
+}
+
+func TestJobMemoryStoreOperatorLeaseActions(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	worker := "worker-1"
+	expired := now.Add(-10 * time.Second)
+	active := now.Add(time.Minute)
+
+	store.jobs["expired"] = &deltaflow.SyncJob{ID: "expired", SyncID: "sync", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &expired, UpdatedAt: now.Add(-time.Minute)}
+	store.jobs["active"] = &deltaflow.SyncJob{ID: "active", SyncID: "sync", State: deltaflow.StateProcessing, LockedBy: &worker, LockedUntil: &active, UpdatedAt: now.Add(-time.Minute)}
+
+	if err := store.ForceReleaseExpiredLease(ctx, "expired", "manual recovery"); err != nil {
+		t.Fatalf("ForceReleaseExpiredLease returned error: %v", err)
+	}
+	released, ok, err := store.Get(ctx, "expired")
+	if err != nil || !ok {
+		t.Fatalf("Get released = (%v, %v, %v)", released, ok, err)
+	}
+	if released.LockedBy != nil || released.LockedUntil != nil {
+		t.Fatalf("released lock = (%v, %v), want nil,nil", released.LockedBy, released.LockedUntil)
+	}
+	if released.LastError == nil || *released.LastError != "operator_force_release: manual recovery" {
+		t.Fatalf("released last_error = %v, want operator_force_release", released.LastError)
+	}
+
+	nextRun := now.Add(30 * time.Second)
+	if err := store.RequeueExpiredLease(ctx, "expired", nextRun, "requeue for retry"); err != nil {
+		t.Fatalf("RequeueExpiredLease returned error: %v", err)
+	}
+	requeued, ok, err := store.Get(ctx, "expired")
+	if err != nil || !ok {
+		t.Fatalf("Get requeued = (%v, %v, %v)", requeued, ok, err)
+	}
+	if requeued.State != deltaflow.StateRetrying {
+		t.Fatalf("requeued state = %s, want %s", requeued.State, deltaflow.StateRetrying)
+	}
+	if !requeued.AvailableAt.Equal(nextRun) {
+		t.Fatalf("requeued available_at = %v, want %v", requeued.AvailableAt, nextRun)
+	}
+	if requeued.LastError == nil || *requeued.LastError != "operator_requeue: requeue for retry" {
+		t.Fatalf("requeued last_error = %v, want operator_requeue", requeued.LastError)
+	}
+
+	if err := store.ForceReleaseExpiredLease(ctx, "active", "manual release"); !errors.Is(err, deltaflow.ErrJobLeaseNotExpired) {
+		t.Fatalf("ForceReleaseExpiredLease active lease error = %v, want %v", err, deltaflow.ErrJobLeaseNotExpired)
+	}
+	if err := store.RequeueExpiredLease(ctx, "active", nextRun, "manual requeue"); !errors.Is(err, deltaflow.ErrJobLeaseNotExpired) {
+		t.Fatalf("RequeueExpiredLease active lease error = %v, want %v", err, deltaflow.ErrJobLeaseNotExpired)
+	}
+	if err := store.ForceReleaseExpiredLease(ctx, "expired", "   "); !errors.Is(err, deltaflow.ErrAuditReasonRequired) {
+		t.Fatalf("ForceReleaseExpiredLease empty reason error = %v, want %v", err, deltaflow.ErrAuditReasonRequired)
+	}
+}
+
 func TestJobMemoryStoreCreateRejectsOutboxJobWithoutDeltaID(t *testing.T) {
 	ctx := context.Background()
 	store := NewJobMemoryStore()
@@ -1031,6 +1134,17 @@ func enqueueDeltaForDispatch(t *testing.T, ctx context.Context, store *DeltaMemo
 		t.Fatalf("Enqueue returned error: %v", err)
 	}
 	return delta
+}
+
+func leaseIDs(jobs []*deltaflow.SyncJob) []deltaflow.SyncJobID {
+	ids := make([]deltaflow.SyncJobID, 0, len(jobs))
+	for _, job := range jobs {
+		if job == nil {
+			continue
+		}
+		ids = append(ids, job.ID)
+	}
+	return ids
 }
 
 type leaseTelemetryOwnershipCheck struct {
