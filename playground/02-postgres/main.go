@@ -118,8 +118,8 @@ func attachRunScopedSyncID(scenario *contactSyncScenario) deltaflow.SyncID {
 }
 
 type countingProjector struct {
-	projectFn     func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error)
-	ghostDeletes  int
+	projectFn    func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error)
+	ghostDeletes int
 }
 
 func (p *countingProjector) Project(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {

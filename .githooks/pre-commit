@@ -5,12 +5,19 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 echo "[pre-commit] Formatting Go files with gofmt"
-go_files="$(git ls-files '*.go')"
-if [[ -n "$go_files" ]]; then
+staged_go_files="$(git diff --cached --name-only --diff-filter=ACMR -- '*.go')"
+if [[ -n "$staged_go_files" ]]; then
   while IFS= read -r file; do
+    if ! git diff --quiet -- "$file"; then
+      echo "[pre-commit] ERROR: $file has both staged and unstaged changes."
+      echo "[pre-commit] Commit aborted to avoid collapsing partial staging."
+      echo "[pre-commit] Stash or stage the remaining edits, then retry."
+      exit 1
+    fi
+
     gofmt -w "$file"
     git add "$file"
-  done <<< "$go_files"
+  done <<< "$staged_go_files"
 fi
 
 echo "[pre-commit] Running go vet"

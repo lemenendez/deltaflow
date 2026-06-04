@@ -26,6 +26,7 @@ Set up the repo pre-commit hook:
 
 The hook runs:
 
-- `gofmt -w` on tracked Go files (and re-stages formatting changes)
+- `gofmt -w` on staged Go files (and re-stages formatting changes)
+- fails if a staged Go file also has unstaged edits (to protect partial staging)
 - `go vet ./...`
 - `golangci-lint run ./...` when `golangci-lint` is available on PATH

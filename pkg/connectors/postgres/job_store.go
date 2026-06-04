@@ -504,6 +504,7 @@ LIMIT $3`, now, threshold, limit)
 
 	return s.collectJobs(rows)
 }
+
 func (s *JobStore) collectJobs(rows *sql.Rows) ([]*deltaflow.SyncJob, error) {
 	jobs := make([]*deltaflow.SyncJob, 0)
 	for rows.Next() {
