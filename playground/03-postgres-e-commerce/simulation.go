@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/brianvoe/gofakeit/v7"
@@ -51,6 +52,11 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 			UpdatedAt:       fixedTime(0).Format(time.RFC3339),
 		})
 	}
+	normalProductIDs := sortedProductIDs(products)
+	retryProductID := normalProductIDs[0]
+	if len(normalProductIDs) > 1 {
+		retryProductID = normalProductIDs[1]
+	}
 
 	deadID := "sku-dead-001"
 	products = append(products, product{
@@ -72,12 +78,6 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 		return nil, err
 	}
 
-	productIDs := sortedProductIDs(products)
-	retryProductID := productIDs[0]
-	if len(productIDs) > 1 {
-		retryProductID = productIDs[1]
-	}
-
 	target := newSearchIndexSimulator(
 		map[string]bool{retryProductID: true},
 		map[string]bool{deadID: true},
@@ -86,7 +86,7 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 	events := make([]mutation, 0, mutationCount+3)
 	kinds := []string{"description", "image", "discount", "inventory", "free_shipping", "promotion", "checkout_wording"}
 	for seq := 1; seq <= mutationCount; seq++ {
-		productID := productIDs[faker.Number(0, len(productIDs)-2)]
+		productID := normalProductIDs[faker.Number(0, len(normalProductIDs)-1)]
 		kind := kinds[(seq+faker.Number(0, len(kinds)-1))%len(kinds)]
 		events = append(events, mutation{
 			Seq:       seq,
@@ -125,62 +125,64 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 }
 
 func runWriters(ctx context.Context, stores *playpg.Stores, source *catalogStore, events []mutation) (int, error) {
-	type request struct {
-		event mutation
-		ack   chan error
-	}
-	chans := make([]chan request, writerCount)
-	for i := range chans {
-		chans[i] = make(chan request)
-	}
-
-	var wg sync.WaitGroup
-	for i := range chans {
-		wg.Add(1)
-		go func(ch <-chan request) {
-			defer wg.Done()
-			for req := range ch {
-				err := applyAndEnqueue(ctx, stores, source, req.event)
-				req.ack <- err
-			}
-		}(chans[i])
-	}
-
-	enqueued := 0
-	type pendingAck struct {
-		idx int
-		ack chan error
-	}
-	pending := make([]pendingAck, 0, len(events))
+	actorEvents := make([][]mutation, writerCount)
 	for _, event := range events {
-		if event.ActorID < 0 || event.ActorID >= len(chans) {
-			for _, ch := range chans {
-				close(ch)
-			}
-			wg.Wait()
-			return enqueued, fmt.Errorf("invalid actor id %d for WRITER_COUNT=%d", event.ActorID, writerCount)
+		if event.ActorID < 0 || event.ActorID >= len(actorEvents) {
+			return 0, fmt.Errorf("invalid actor id %d for WRITER_COUNT=%d", event.ActorID, writerCount)
 		}
-		ack := make(chan error, 1)
-		chans[event.ActorID] <- request{event: event, ack: ack}
-		pending = append(pending, pendingAck{idx: enqueued, ack: ack})
-		enqueued++
+		actorEvents[event.ActorID] = append(actorEvents[event.ActorID], event)
 	}
 
-	for _, p := range pending {
-		if err := <-p.ack; err != nil {
-			for _, ch := range chans {
-				close(ch)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, writerCount)
+	done := make(chan struct{})
+	var enqueued atomic.Int64
+	var wg sync.WaitGroup
+	for _, eventsForActor := range actorEvents {
+		wg.Add(1)
+		go func(eventsForActor []mutation) {
+			defer wg.Done()
+			for _, event := range eventsForActor {
+				if runCtx.Err() != nil {
+					return
+				}
+				if err := applyAndEnqueue(runCtx, stores, source, event); err != nil {
+					select {
+					case errCh <- err:
+					default:
+					}
+					cancel()
+					return
+				}
+				enqueued.Add(1)
 			}
-			wg.Wait()
-			return p.idx, err
-		}
+		}(eventsForActor)
 	}
 
-	for _, ch := range chans {
-		close(ch)
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		select {
+		case err := <-errCh:
+			return int(enqueued.Load()), err
+		default:
+			return int(enqueued.Load()), nil
+		}
+	case err := <-errCh:
+		cancel()
+		<-done
+		return int(enqueued.Load()), err
+	case <-ctx.Done():
+		cancel()
+		<-done
+		return int(enqueued.Load()), ctx.Err()
 	}
-	wg.Wait()
-	return enqueued, nil
 }
 
 func applyAndEnqueue(ctx context.Context, stores *playpg.Stores, source *catalogStore, event mutation) error {
