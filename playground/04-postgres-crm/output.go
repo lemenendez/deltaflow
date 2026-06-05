@@ -10,6 +10,7 @@ import (
 
 func printReport(result demoResult) {
 	breakdown := mutationBreakdown(result.Scenario.events)
+	retryCustomerID := retryCustomerID(result.Scenario.events)
 
 	fmt.Println("DeltaFlow playground 04-postgres-crm")
 	fmt.Println()
@@ -24,7 +25,11 @@ func printReport(result demoResult) {
 
 	fmt.Println("Workload")
 	fmt.Printf("- CRM mutations: %s.\n", formatBreakdown(breakdown))
-	fmt.Println("- cus-004: simulated one temporary Redis timeout, then retry succeeded.")
+	if maxAttempts >= 2 {
+		fmt.Printf("- %s: simulated one temporary Redis timeout, then retry succeeded.\n", retryCustomerID)
+	} else {
+		fmt.Printf("- %s: simulated one temporary Redis timeout, but MAX_ATTEMPTS=%d marks the job dead immediately.\n", retryCustomerID, maxAttempts)
+	}
 	fmt.Println("- ord-dead-001: simulated permanent target rejection, so the job reached dead-letter after max attempts.")
 	fmt.Println("- cus-ghost-001: stale customer view with no source customer, so DeltaFlow issued a delete.")
 	fmt.Println()
@@ -81,4 +86,13 @@ func formatBreakdown(counts map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func retryCustomerID(events []mutation) string {
+	for _, event := range events {
+		if event.Seq == mutationCount+1 {
+			return event.EntityID
+		}
+	}
+	return "retry-customer"
 }

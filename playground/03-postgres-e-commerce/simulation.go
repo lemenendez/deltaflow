@@ -72,13 +72,18 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 		return nil, err
 	}
 
+	productIDs := sortedProductIDs(products)
+	retryProductID := productIDs[0]
+	if len(productIDs) > 1 {
+		retryProductID = productIDs[1]
+	}
+
 	target := newSearchIndexSimulator(
-		map[string]bool{"sku-004": true},
+		map[string]bool{retryProductID: true},
 		map[string]bool{deadID: true},
 	)
 
 	events := make([]mutation, 0, mutationCount+3)
-	productIDs := sortedProductIDs(products)
 	kinds := []string{"description", "image", "discount", "inventory", "free_shipping", "promotion", "checkout_wording"}
 	for seq := 1; seq <= mutationCount; seq++ {
 		productID := productIDs[faker.Number(0, len(productIDs)-2)]
@@ -95,9 +100,9 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 	events = append(events, mutation{
 		Seq:       mutationCount + 1,
 		ActorID:   1,
-		ProductID: "sku-004",
+		ProductID: retryProductID,
 		Kind:      "image",
-		Value:     "https://cdn.example.test/products/sku-004/retry-once.jpg",
+		Value:     fmt.Sprintf("https://cdn.example.test/products/%s/retry-once.jpg", retryProductID),
 		At:        fixedTime(mutationCount + 1),
 	})
 	events = append(events, mutation{
@@ -142,17 +147,33 @@ func runWriters(ctx context.Context, stores *playpg.Stores, source *catalogStore
 	}
 
 	enqueued := 0
+	type pendingAck struct {
+		idx int
+		ack chan error
+	}
+	pending := make([]pendingAck, 0, len(events))
 	for _, event := range events {
-		ack := make(chan error, 1)
-		chans[event.ActorID] <- request{event: event, ack: ack}
-		if err := <-ack; err != nil {
+		if event.ActorID < 0 || event.ActorID >= len(chans) {
 			for _, ch := range chans {
 				close(ch)
 			}
 			wg.Wait()
-			return enqueued, err
+			return enqueued, fmt.Errorf("invalid actor id %d for WRITER_COUNT=%d", event.ActorID, writerCount)
 		}
+		ack := make(chan error, 1)
+		chans[event.ActorID] <- request{event: event, ack: ack}
+		pending = append(pending, pendingAck{idx: enqueued, ack: ack})
 		enqueued++
+	}
+
+	for _, p := range pending {
+		if err := <-p.ack; err != nil {
+			for _, ch := range chans {
+				close(ch)
+			}
+			wg.Wait()
+			return p.idx, err
+		}
 	}
 
 	for _, ch := range chans {

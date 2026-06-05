@@ -91,8 +91,13 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 		return nil, err
 	}
 
+	retryCustomerID := customerIDs[0]
+	if len(customerIDs) > 1 {
+		retryCustomerID = customerIDs[1]
+	}
+
 	target := newCRMTargetSimulator(
-		map[string]bool{string(custProjection) + "/cus-004": true},
+		map[string]bool{string(custProjection) + "/" + retryCustomerID: true},
 		map[string]bool{string(orderProjection) + "/" + deadOrderID: true},
 	)
 
@@ -149,7 +154,7 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 		Seq:        mutationCount + 1,
 		ActorID:    2,
 		Entity:     "customer",
-		EntityID:   "cus-004",
+		EntityID:   retryCustomerID,
 		Kind:       "phone",
 		Value:      faker.Phone(),
 		Projection: custProjection,
@@ -201,17 +206,33 @@ func runWriters(ctx context.Context, stores *playpg.Stores, source *crmStore, ev
 	}
 
 	enqueued := 0
+	type pendingAck struct {
+		idx int
+		ack chan error
+	}
+	pending := make([]pendingAck, 0, len(events))
 	for _, event := range events {
-		ack := make(chan error, 1)
-		chans[event.ActorID] <- request{event: event, ack: ack}
-		if err := <-ack; err != nil {
+		if event.ActorID < 0 || event.ActorID >= len(chans) {
 			for _, ch := range chans {
 				close(ch)
 			}
 			wg.Wait()
-			return enqueued, err
+			return enqueued, fmt.Errorf("invalid actor id %d for WRITER_COUNT=%d", event.ActorID, writerCount)
 		}
+		ack := make(chan error, 1)
+		chans[event.ActorID] <- request{event: event, ack: ack}
+		pending = append(pending, pendingAck{idx: enqueued, ack: ack})
 		enqueued++
+	}
+
+	for _, p := range pending {
+		if err := <-p.ack; err != nil {
+			for _, ch := range chans {
+				close(ch)
+			}
+			wg.Wait()
+			return p.idx, err
+		}
 	}
 
 	for _, ch := range chans {

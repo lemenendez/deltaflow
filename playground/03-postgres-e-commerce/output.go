@@ -10,6 +10,7 @@ import (
 
 func printReport(result demoResult) {
 	breakdown := mutationBreakdown(result.Scenario.events)
+	retryProductID := retryProductID(result.Scenario.events)
 
 	fmt.Println("DeltaFlow playground 03-postgres-e-commerce")
 	fmt.Println()
@@ -24,7 +25,11 @@ func printReport(result demoResult) {
 
 	fmt.Println("Workload")
 	fmt.Printf("- Product mutations: %s.\n", formatBreakdown(breakdown))
-	fmt.Println("- sku-004: simulated one temporary Elasticsearch 429, then retry succeeded.")
+	if maxAttempts >= 2 {
+		fmt.Printf("- %s: simulated one temporary Elasticsearch 429, then retry succeeded.\n", retryProductID)
+	} else {
+		fmt.Printf("- %s: simulated one temporary Elasticsearch 429, but MAX_ATTEMPTS=%d marks the job dead immediately.\n", retryProductID, maxAttempts)
+	}
 	fmt.Println("- sku-dead-001: simulated permanent target rejection, so the job reached dead-letter after max attempts.")
 	fmt.Println("- sku-ghost-001: stale search document with no source product, so DeltaFlow issued a delete.")
 	fmt.Println()
@@ -80,4 +85,13 @@ func formatBreakdown(counts map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func retryProductID(events []mutation) string {
+	for _, event := range events {
+		if event.Seq == mutationCount+1 {
+			return event.ProductID
+		}
+	}
+	return "retry-product"
 }

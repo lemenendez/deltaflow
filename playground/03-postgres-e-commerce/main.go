@@ -67,6 +67,9 @@ func loadConfig() error {
 	if writerCount, err = playpg.EnvInt("WRITER_COUNT", writerCount); err != nil {
 		return err
 	}
+	if writerCount < 4 {
+		return fmt.Errorf("WRITER_COUNT must be >= 4 for this scenario")
+	}
 	if workerCount, err = playpg.EnvInt("WORKER_COUNT", workerCount); err != nil {
 		return err
 	}
