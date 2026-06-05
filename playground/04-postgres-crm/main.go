@@ -1,0 +1,94 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lemenendez/deltaflow/playground/internal/playpg"
+)
+
+const (
+	syncID          = "playground-04-crm-to-redis-opensearch"
+	userProjection  = "CRMUserView"
+	custProjection  = "CRMCustomerView"
+	orderProjection = "CRMOrderFanout"
+)
+
+var (
+	seed          = uint64(4004)
+	userCount     = 8
+	customerCount = 18
+	orderCount    = 22
+	mutationCount = 64
+	writerCount   = 4
+	workerCount   = 2
+	maxAttempts   = 3
+)
+
+var baseActorNames = []string{
+	"api-server-1",
+	"api-server-2",
+	"crm-worker-1",
+	"crm-worker-2",
+}
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := loadConfig(); err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
+	dsn := os.Getenv("DELTAFLOW_PG_DSN")
+	if dsn == "" {
+		dsn = playpg.DefaultDSN()
+	}
+
+	result, err := runDemo(ctx, dsn)
+	if err != nil {
+		log.Fatalf("scenario failed: %v", err)
+	}
+
+	printReport(result)
+}
+
+func loadConfig() error {
+	var err error
+	if seed, err = playpg.EnvUint64("SIM_SEED", seed); err != nil {
+		return err
+	}
+	if userCount, err = playpg.EnvInt("USER_COUNT", userCount); err != nil {
+		return err
+	}
+	if customerCount, err = playpg.EnvInt("CUSTOMER_COUNT", customerCount); err != nil {
+		return err
+	}
+	if orderCount, err = playpg.EnvInt("ORDER_COUNT", orderCount); err != nil {
+		return err
+	}
+	if mutationCount, err = playpg.EnvInt("MUTATION_COUNT", mutationCount); err != nil {
+		return err
+	}
+	if writerCount, err = playpg.EnvInt("WRITER_COUNT", writerCount); err != nil {
+		return err
+	}
+	if workerCount, err = playpg.EnvInt("WORKER_COUNT", workerCount); err != nil {
+		return err
+	}
+	if maxAttempts, err = playpg.EnvInt("MAX_ATTEMPTS", maxAttempts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func actorName(actorID int) string {
+	if actorID >= 0 && actorID < len(baseActorNames) {
+		return baseActorNames[actorID]
+	}
+	return fmt.Sprintf("crm-actor-%d", actorID+1)
+}

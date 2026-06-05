@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# Playground run artifacts
+playground/*/logs/
+
 # Editor/IDE
 # .idea/
 # .vscode/

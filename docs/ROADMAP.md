@@ -45,14 +45,39 @@ v0.6.0   CLI + minimal YAML
          - retry config
          - no connector registry
 
-v0.7.0   Redis/Postgres appliers
+v0.7.0   Worker throughput + batching
+         - configurable worker concurrency:
+           N goroutines per sync/worker process
+         - configurable batch size:
+           each routine fetches up to M jobs per pull/drain cycle
+         - preserve lease ownership semantics for every claimed job
+         - decide API shape for batch claim, for example ClaimNextBatch(sync_id, worker_id, limit, lock_for)
+         - keep per-job retry/dead/ghost handling observable inside the batch
+         - benchmark against playground baseline:
+           current one-job-per-RunOnce drain time vs N routines x M batch size
+         - expose config in CLI/YAML:
+           worker.concurrency=N
+           worker.batch_size=M
+         - validate with large playground runs using fixed seed/source universe/mutation count
 
-v0.8.0   Elasticsearch applier + search example
+v0.8.0   Redis/Postgres appliers
 
-v0.9.0   Metrics + logs + operational safety
+v0.9.0   Elasticsearch applier + search example
 
-v0.10.0  Backfills
+v0.10.0  Metrics + logs + operational safety
+         - entity trace/debug command:
+           given sync_id + projection_type + projection_key, explain "what happened"
+           by fetching matching deltas, mapped jobs, attempts, final state, last error,
+           ghost flag, lease ownership history, and related worker/lease logs
+         - trace should support playground/operator usage first, for example:
+           make trace TYPE=ProductSearchDocument KEY='{"product_id":"sku-004"}'
+         - later promote to CLI:
+           deltaflow trace --sync <sync_id> --type <projection_type> --key '<json>'
+         - consider persisting/logging projection_key_hash and job_id in structured logs
+           so traces can join SQL state and slog output reliably
 
-v0.11.0  API polish + docs + examples
+v0.11.0  Backfills
+
+v0.12.0  API polish + docs + examples
 
 v1.0.0   Stable latest_state OSS release

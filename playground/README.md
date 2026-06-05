@@ -12,3 +12,5 @@ Available playgrounds:
 
 - `01-in-memory`: latest-state customer cache sync simulation with in-memory source and target stores
 - `02-postgres`: contact delta flow using Postgres DeltaStore, DispatchStore, and JobStore with docker compose
+- `03-postgres-e-commerce`: concurrent product search workload with deterministic web/logistics writers, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation
+- `04-postgres-crm`: concurrent CRM read-model workload with Redis/OpenSearch fanout simulation, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation
