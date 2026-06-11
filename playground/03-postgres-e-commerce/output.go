@@ -17,7 +17,7 @@ func printReport(result demoResult) {
 	fmt.Println("What happened")
 	fmt.Printf("- Source universe: seed %d generated %d normal products plus 1 poison product for dead-letter behavior.\n", seed, productCount)
 	fmt.Printf("- Workload size: %d random product mutations plus 3 special deltas.\n", mutationCount)
-	fmt.Printf("- %d customer-side actors updated durable Postgres product rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
+	fmt.Printf("- %d application-side actors updated durable Postgres product rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
 	fmt.Printf("- %d DeltaFlow workers concurrently dispatched, claimed, projected, and applied those jobs from Postgres.\n", workerCount)
 	fmt.Println("- Projector reads the latest product row and builds ProductSearchDocument.")
 	fmt.Println("- Applier is a simulated Elasticsearch adapter; no real Elasticsearch connector is used yet.")
