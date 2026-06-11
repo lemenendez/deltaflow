@@ -614,7 +614,7 @@ SyncWorker
 
 ## 6. Delta and SyncJob States
 
-Deltaflow uses two explicit state models:
+DeltaFlow uses two explicit state models:
 
 1. Delta lifecycle (outbox-facing)
 2. SyncJob lifecycle (worker-facing)
