@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/brianvoe/gofakeit/v7"
@@ -27,6 +26,16 @@ type scenario struct {
 	source *crmStore
 	target *crmTargetSimulator
 	events []mutation
+}
+
+type writerRunResult struct {
+	Enqueued int
+	Planned  int
+}
+
+type writerAck struct {
+	event mutation
+	err   error
 }
 
 func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error) {
@@ -184,11 +193,12 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 	return &scenario{source: source, target: target, events: events}, nil
 }
 
-func runWriters(ctx context.Context, stores *playpg.Stores, source *crmStore, events []mutation) (int, error) {
+func runWriters(ctx context.Context, stores *playpg.Stores, source *crmStore, events []mutation) (writerRunResult, error) {
+	result := writerRunResult{Planned: len(events)}
 	actorEvents := make([][]mutation, writerCount)
 	for _, event := range events {
 		if event.ActorID < 0 || event.ActorID >= len(actorEvents) {
-			return 0, fmt.Errorf("invalid actor id %d for WRITER_COUNT=%d", event.ActorID, writerCount)
+			return result, fmt.Errorf("invalid actor id %d for WRITER_COUNT=%d", event.ActorID, writerCount)
 		}
 		actorEvents[event.ActorID] = append(actorEvents[event.ActorID], event)
 	}
@@ -196,9 +206,7 @@ func runWriters(ctx context.Context, stores *playpg.Stores, source *crmStore, ev
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errCh := make(chan error, writerCount)
-	done := make(chan struct{})
-	var enqueued atomic.Int64
+	ackCh := make(chan writerAck)
 	var wg sync.WaitGroup
 	for _, eventsForActor := range actorEvents {
 		wg.Add(1)
@@ -208,41 +216,47 @@ func runWriters(ctx context.Context, stores *playpg.Stores, source *crmStore, ev
 				if runCtx.Err() != nil {
 					return
 				}
-				if err := applyAndEnqueue(runCtx, stores, source, event); err != nil {
-					select {
-					case errCh <- err:
-					default:
-					}
+				err := applyAndEnqueue(runCtx, stores, source, event)
+				ackCh <- writerAck{event: event, err: err}
+				if err != nil {
 					cancel()
 					return
 				}
-				enqueued.Add(1)
 			}
 		}(eventsForActor)
 	}
 
 	go func() {
 		wg.Wait()
-		close(done)
+		close(ackCh)
 	}()
 
-	select {
-	case <-done:
-		select {
-		case err := <-errCh:
-			return int(enqueued.Load()), err
-		default:
-			return int(enqueued.Load()), nil
+	var firstFailure writerAck
+	for ack := range ackCh {
+		if ack.err == nil {
+			result.Enqueued++
+			continue
 		}
-	case err := <-errCh:
-		cancel()
-		<-done
-		return int(enqueued.Load()), err
-	case <-ctx.Done():
-		cancel()
-		<-done
-		return int(enqueued.Load()), ctx.Err()
+		if firstFailure.err == nil {
+			firstFailure = ack
+			cancel()
+		}
 	}
+
+	if firstFailure.err != nil {
+		return result, fmt.Errorf(
+			"writer stage failed after %d/%d committed deltas (actor %s sequence %d): %w",
+			result.Enqueued,
+			result.Planned,
+			actorName(firstFailure.event.ActorID),
+			firstFailure.event.Seq,
+			firstFailure.err,
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return result, fmt.Errorf("writer stage stopped after %d/%d committed deltas: %w", result.Enqueued, result.Planned, err)
+	}
+	return result, nil
 }
 
 func applyAndEnqueue(ctx context.Context, stores *playpg.Stores, source *crmStore, event mutation) error {

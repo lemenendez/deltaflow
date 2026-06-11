@@ -90,11 +90,16 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	}()
 
 	enqueueStart := time.Now()
-	enqueued, err := runWriters(ctx, stores, scenario.source, scenario.events)
+	writerResult, err := runWriters(ctx, stores, scenario.source, scenario.events)
 	enqueueElapsed := time.Since(enqueueStart)
 	writersDone.Store(true)
 	if err != nil {
-		return demoResult{}, err
+		return demoResult{
+			Scenario:      scenario,
+			Enqueued:      writerResult.Enqueued,
+			Timings:       playpg.RunTimings{Setup: setupElapsed, Enqueue: enqueueElapsed, Total: time.Since(totalStart)},
+			WorkerLogPath: fileLogger.Path,
+		}, err
 	}
 
 	drainStart := time.Now()
@@ -117,7 +122,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	}
 	fileLogger.Logger.Info("playground_run_completed",
 		"sync_id", syncID,
-		"enqueued", enqueued,
+		"enqueued", writerResult.Enqueued,
 		"jobs_synced", counts.Synced,
 		"jobs_dead", counts.Dead,
 		"ghost_jobs", counts.Ghosts,
@@ -127,7 +132,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 
 	return demoResult{
 		Scenario:        scenario,
-		Enqueued:        enqueued,
+		Enqueued:        writerResult.Enqueued,
 		WorkerStats:     workerResult.stats,
 		JobCounts:       counts,
 		ProjectorGhosts: projector.ghostCount(),
