@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: deltaflow
+      POSTGRES_USER: deltaflow
+      POSTGRES_PASSWORD: deltaflow
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../../:/workspace:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deltaflow -d deltaflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  playground:
+    image: golang:1.25
+    working_dir: /workspace/playground/04-postgres-crm
+    environment:
+      DELTAFLOW_PG_DSN: postgres://deltaflow:deltaflow@postgres:5432/deltaflow?sslmode=disable
+      SIM_SEED: ${SIM_SEED:-4004}
+      USER_COUNT: ${USER_COUNT:-8}
+      CUSTOMER_COUNT: ${CUSTOMER_COUNT:-18}
+      ORDER_COUNT: ${ORDER_COUNT:-22}
+      MUTATION_COUNT: ${MUTATION_COUNT:-64}
+      WRITER_COUNT: ${WRITER_COUNT:-4}
+      WORKER_COUNT: ${WORKER_COUNT:-2}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      DELTAFLOW_WORKER_LOG: ${DELTAFLOW_WORKER_LOG:-logs/deltaflow-worker.log}
+    volumes:
+      - ../../:/workspace
+      - gomodcache:/go/pkg/mod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["go", "run", "."]
+
+volumes:
+  pgdata:
+  gomodcache:

@@ -1,16 +1,18 @@
 # DeltaFlow Design
 
-> Status: v0.2 design.
+> Status: v0.4 design.
 >
 > Goal: keep DeltaFlow small, explicit, and clear.
 >
-> DeltaFlow v0.2 is a latest-state synchronization worker with in-memory Delta and SyncJob stores.
+> DeltaFlow v0.4 is a latest-state synchronization worker with in-memory and durable Delta and SyncJob stores.
+> In v0.2, a Sync is not a graph, not a connector registry, not a multi-target fan-out system, and not an Apache Beam pipeline.
+
 
 ---
 
 ## 1. Goal
 
-DeltaFlow v0.2 helps an application keep one derived system synchronized with the latest state of a business Projection.
+DeltaFlow v0.4 helps an application keep one derived system synchronized with the latest state of a business Projection.
 
 This version answers one question:
 
@@ -34,9 +36,9 @@ Delta Ghost handling
 
 ---
 
-## 2. Non-goals for v0.2
+## 2. Non-goals for v0.4
 
-DeltaFlow v0.2 does not include:
+DeltaFlow v0.4 does not include:
 
 ```text
 CDC as the primary abstraction
@@ -57,8 +59,6 @@ billing
 dashboard
 non-idempotent effect targets
 ```
-
-These are future ideas, not v0.2 requirements.
 
 ---
 
@@ -219,7 +219,7 @@ The verb is:
 Project
 ```
 
-In v0.2, the Projector always projects the latest state.
+In v0.4, the Projector always projects the latest state.
 
 Minimal interface:
 
@@ -235,7 +235,7 @@ If the Projection no longer exists, the Projector returns:
 ErrProjectionNotFound
 ```
 
-That case is called a Delta Ghost.
+That case is called a **Delta Ghost**.
 
 ---
 
@@ -243,7 +243,7 @@ That case is called a Delta Ghost.
 
 A Projection Operation is the operation that the worker asks a ProjectionApplier to apply.
 
-For v0.2, only two operations exist:
+For v0.4, only two operations exist:
 
 ```text
 upsert
@@ -306,7 +306,7 @@ type ProjectionApplier interface {
 }
 ```
 
-For v0.2, ProjectionAppliers are assumed to be idempotent.
+For v0.4, ProjectionAppliers are assumed to be idempotent.
 
 That means:
 
@@ -316,7 +316,7 @@ Apply delete twice = safe
 Apply delete when missing = safe
 ```
 
-Examples of v0.2-friendly derived systems:
+Examples of v0.4-friendly derived systems:
 
 ```text
 Elasticsearch document
@@ -369,7 +369,7 @@ Synchronize the latest state of Contact 123.
 
 Important: Outbox SyncJobs are created from Deltas.
 
-v0.2 also allows direct SyncJob creation for operational workflows.
+v0.4 also allows direct SyncJob creation for operational workflows.
 When `origin = outbox`, `delta_id` should reference the source Delta.
 When `origin = backfill`, `origin = replay`, or `origin = manual`, `delta_id` may be empty.
 
@@ -386,7 +386,7 @@ Worker -> processes SyncJob
 
 The Delta Outbox is the planned durable database table where the application stores Deltas.
 
-In v0.2, DeltaFlow uses an in-memory DeltaStore while keeping the same conceptual contract.
+In v0.4, DeltaFlow supports two store implementations—(a) an in-memory store and (b) a Postgres durable store—while keeping the same conceptual contract.
 
 The application should insert a Delta in the same transaction as the business data change.
 
@@ -431,7 +431,6 @@ If the transaction rolls back, the Delta rolls back too.
 
 ### 3.10 Sync
 
-A Sync is a v0.2 synchronization configuration.
 
 It connects:
 
@@ -455,8 +454,6 @@ projection_type = Contact
 projector = ContactProjector
 applier = ElasticsearchProjectionApplier
 ```
-
-In v0.2, a Sync is not a graph, not a connector registry, not a multi-target fan-out system, and not an Apache Beam pipeline.
 
 It is a small source-to-derived-system synchronization route.
 
@@ -536,7 +533,7 @@ A Delta Ghost is a valid synchronization outcome.
 
 ## 4. Naming Convention
 
-DeltaFlow v0.2 uses projection-based terminology.
+DeltaFlow uses projection-based terminology.
 
 Preferred internal names:
 
@@ -589,7 +586,7 @@ Should be represented internally as:
 
 ---
 
-## 5. v0.2 Flow
+## 5. DeltaFlow current state
 
 ```text
 Application transaction
@@ -617,7 +614,7 @@ SyncWorker
 
 ## 6. Delta and SyncJob States
 
-v0.2 uses two explicit state models:
+DeltaFlow uses two explicit state models:
 
 1. Delta lifecycle (outbox-facing)
 2. SyncJob lifecycle (worker-facing)
@@ -672,11 +669,11 @@ dead
     The SyncJob exhausted retries or was manually marked dead.
 ```
 
-A failed attempt is not a separate stored state in v0.2. The worker records the
+A failed attempt is not a separate stored state in DeltaFlow. The worker records the
 error details and moves the SyncJob directly to `retrying` when another attempt
 is available, or to `dead` when retries are exhausted.
 
-No TargetDelivery state model exists in v0.2.
+No TargetDelivery state model exists in current version.
 
 The Delta and SyncJob state models are intentionally separate.
 
@@ -735,7 +732,7 @@ if _, err := deltaStore.EnqueueInTx(ctx, tx, deltaflow.Delta{
 return tx.Commit()
 ```
 
-In v0.2, these concerns are represented by in-memory stores.
+In current version, these concerns are represented by in-memory and durable stores.
 
 Detailed SQL schema, indexes, and migration shape are deferred to a persistence milestone.
 
@@ -995,7 +992,7 @@ Lease hardening (v0.4 scope):
 
 ## 11. Minimal YAML
 
-YAML is optional in v0.2.
+YAML is optional in the current version.
 
 The app may wire Projector and ProjectionApplier directly in Go.
 
@@ -1014,7 +1011,7 @@ retry:
   max_delay: 5m
 ```
 
-Do not put connector registry concepts in v0.2 YAML.
+Do not put connector registry concepts in current version YAML.
 
 No connector IDs.
 
@@ -1024,7 +1021,7 @@ No digests.
 
 No dynamic plugins.
 
-Projector and ProjectionApplier construction belongs to application code in v0.2.
+Projector and ProjectionApplier construction belongs to application code in current version.
 
 Example Go wiring:
 
@@ -1079,8 +1076,8 @@ full customer data
 
 ## 13. Design Rules
 
-1. v0.2 supports only `latest_state`.
-2. v0.2 supports one Projector and one ProjectionApplier per SyncWorker configuration.
+1. current version supports only `latest_state`.
+2. current version supports one Projector and one ProjectionApplier per SyncWorker configuration.
 3. Do not implement a connector registry.
 4. Do not implement fan-out.
 5. Do not implement envelopes or codecs.
@@ -1088,7 +1085,7 @@ full customer data
 7. Do not call Deltas events.
 8. Use `projection_type` and `projection_key`, not `entity_type` and `entity_id`.
 9. Treat `ErrProjectionNotFound` from the Projector as a Delta Ghost.
-10. Keep ProjectionAppliers idempotent in v0.2.
+10. Keep ProjectionAppliers idempotent in current version.
 11. Keep the SyncWorker boring.
 
 ---
@@ -1100,7 +1097,7 @@ Deferred features and broader roadmap items can be documented later in [FUTURE](
 
 ## 14. Summary
 
-DeltaFlow v0.2 is:
+DeltaFlow is:
 
 ```text
 Delta

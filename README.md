@@ -11,6 +11,8 @@ Standalone examples live under `playground/`.
 
 - `playground/01-in-memory`: in-memory latest-state flow using the public DeltaFlow API.
 - `playground/02-postgres`: Postgres-backed Contact delta flow using DeltaStore, DispatchStore, and JobStore via docker compose.
+- `playground/03-postgres-e-commerce`: concurrent product-search workload using deterministic fake data, Postgres DeltaStore, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation.
+- `playground/04-postgres-crm`: concurrent CRM read-model workload using deterministic fake data, Postgres DeltaStore, two DeltaFlow workers, Redis/OpenSearch fanout simulation, ghost deletion, retry, and dead-letter simulation.
 
 The concrete Postgres delta store provides two clear write paths:
 - `Enqueue(ctx, delta)` for standalone inserts (tests, backfills, CLI/admin tools).
