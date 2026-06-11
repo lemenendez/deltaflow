@@ -92,6 +92,10 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	enqueueElapsed := time.Since(enqueueStart)
 	writersDone.Store(true)
 	if err != nil {
+		select {
+		case <-workerStatsCh:
+		case <-ctx.Done():
+		}
 		return demoResult{
 			Scenario:      scenario,
 			Enqueued:      writerResult.Enqueued,
