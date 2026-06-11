@@ -386,7 +386,7 @@ Worker -> processes SyncJob
 
 The Delta Outbox is the planned durable database table where the application stores Deltas.
 
-In v0.4, DeltaFlow supports two a) an in-memory and b) postgres durable store while keeping the same conceptual contract.
+In v0.4, DeltaFlow supports two store implementations—(a) an in-memory store and (b) a Postgres durable store—while keeping the same conceptual contract.
 
 The application should insert a Delta in the same transaction as the business data change.
 
