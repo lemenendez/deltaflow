@@ -17,7 +17,7 @@ func printReport(result demoResult) {
 	fmt.Println("What happened")
 	fmt.Printf("- Source universe: seed %d generated %d users, %d customers, and %d normal orders plus 1 poison order.\n", seed, userCount, customerCount, orderCount)
 	fmt.Printf("- Workload size: %d random CRM mutations plus 3 special deltas.\n", mutationCount)
-	fmt.Printf("- %d customer-side actors updated durable Postgres CRM rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
+	fmt.Printf("- %d application-side actors updated durable Postgres CRM rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
 	fmt.Printf("- %d DeltaFlow workers concurrently dispatched, claimed, projected, and applied those jobs from Postgres.\n", workerCount)
 	fmt.Println("- Projector reads the latest CRM row and builds user/customer/order projections.")
 	fmt.Println("- Applier simulates Redis views plus OpenSearch/order fanout; no real Redis/OpenSearch connector is used yet.")
