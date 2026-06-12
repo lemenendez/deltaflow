@@ -1,18 +1,20 @@
 # DeltaFlow Design
 
-> Status: v0.4 design.
+> Status: v0.5 latest-state MVP design.
 >
 > Goal: keep DeltaFlow small, explicit, and clear.
 >
-> DeltaFlow v0.4 is a latest-state synchronization worker with in-memory and durable Delta and SyncJob stores.
-> In v0.2, a Sync is not a graph, not a connector registry, not a multi-target fan-out system, and not an Apache Beam pipeline.
+> DeltaFlow v0.5 exposes the latest-state worker contract through public Go APIs,
+> with in-memory and durable Postgres Delta and SyncJob stores.
+> A Sync is not a graph, not a connector registry, not a multi-target fan-out
+> system, and not an Apache Beam pipeline.
 
 
 ---
 
 ## 1. Goal
 
-DeltaFlow v0.4 helps an application keep one derived system synchronized with the latest state of a business Projection.
+DeltaFlow helps an application keep one derived system synchronized with the latest state of a business Projection.
 
 This version answers one question:
 
@@ -27,7 +29,7 @@ one Sync
 one Projector
 one ProjectionApplier
 latest_state mode only
-in-memory DeltaStore + JobStore + DispatchStore (non-durable)
+in-memory and Postgres DeltaStore + JobStore + DispatchStore implementations
 worker leases
 retries
 dead SyncJobs
@@ -36,9 +38,9 @@ Delta Ghost handling
 
 ---
 
-## 2. Non-goals for v0.4
+## 2. Non-goals for v0.5
 
-DeltaFlow v0.4 does not include:
+DeltaFlow v0.5 does not include:
 
 ```text
 CDC as the primary abstraction
@@ -219,7 +221,7 @@ The verb is:
 Project
 ```
 
-In v0.4, the Projector always projects the latest state.
+In the latest-state MVP, the Projector always projects the latest state.
 
 Minimal interface:
 
@@ -243,7 +245,7 @@ That case is called a **Delta Ghost**.
 
 A Projection Operation is the operation that the worker asks a ProjectionApplier to apply.
 
-For v0.4, only two operations exist:
+For the latest-state MVP, only two operations exist:
 
 ```text
 upsert
@@ -306,7 +308,7 @@ type ProjectionApplier interface {
 }
 ```
 
-For v0.4, ProjectionAppliers are assumed to be idempotent.
+For the latest-state MVP, ProjectionAppliers are assumed to be idempotent.
 
 That means:
 
@@ -316,7 +318,7 @@ Apply delete twice = safe
 Apply delete when missing = safe
 ```
 
-Examples of v0.4-friendly derived systems:
+Examples of latest-state-friendly derived systems:
 
 ```text
 Elasticsearch document
@@ -369,7 +371,7 @@ Synchronize the latest state of Contact 123.
 
 Important: Outbox SyncJobs are created from Deltas.
 
-v0.4 also allows direct SyncJob creation for operational workflows.
+The current API also allows direct SyncJob creation for operational workflows.
 When `origin = outbox`, `delta_id` should reference the source Delta.
 When `origin = backfill`, `origin = replay`, or `origin = manual`, `delta_id` may be empty.
 
@@ -386,7 +388,7 @@ Worker -> processes SyncJob
 
 The Delta Outbox is the planned durable database table where the application stores Deltas.
 
-In v0.4, DeltaFlow supports two store implementations—(a) an in-memory store and (b) a Postgres durable store—while keeping the same conceptual contract.
+DeltaFlow supports two store implementations: an in-memory store and a Postgres durable store, while keeping the same conceptual contract.
 
 The application should insert a Delta in the same transaction as the business data change.
 
@@ -461,12 +463,13 @@ It is a small source-to-derived-system synchronization route.
 
 ### 3.11 SyncWorker
 
-A SyncWorker is the runtime process that claims Deltas and executes a Sync.
+A SyncWorker is the runtime process that dispatches Deltas, claims SyncJobs, and executes a Sync.
 
 A SyncWorker:
 
 ```text
-claims pending Deltas
+dispatches pending Deltas into SyncJobs
+claims one SyncJob
 calls Projector.Project(identity)
 creates a ProjectionOperation
 calls ProjectionApplier.Apply(operation)
@@ -1029,11 +1032,12 @@ Example Go wiring:
 projector := deltaflow.ProjectorFunc(projectContact)
 applier := deltaflow.ProjectionApplierFunc(applyContactToElasticsearch)
 
-worker := SyncWorker{
+worker := deltaflow.SyncWorker{
     JobStore:   jobStore,
     Dispatcher: dispatchStore,
     Projector:  projector,
     Applier:    applier,
+    SyncID:     "contacts-to-elasticsearch",
     WorkerID:   "worker-1",
     LockFor:    time.Minute,
     PullSize:   100,

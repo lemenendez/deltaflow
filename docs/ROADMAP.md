@@ -32,11 +32,12 @@ v0.4.0   Postgres lease hardening + transactional app patterns
          - playground for concurrent workload simulation (writers + workers)
 
 v0.5.0   latest_state MVP
-         - Projector.Project()
-         - ProjectionApplier.Apply()
-         - Delta Ghost handling
-         - app transaction example
-         - fake/simple applier example
+         - public SyncWorker.RunOnce API
+         - documented Projector.Project() + ProjectionApplier.Apply() runtime contract
+         - documented Delta Ghost handling with ErrProjectionNotFound -> delete
+         - documented app transaction example using EnqueueInTx
+         - point users at existing fake/simple applier playgrounds
+         - README/DESIGN refresh for current latest-state MVP status
 
 v0.6.0   CLI + minimal YAML
          - run worker

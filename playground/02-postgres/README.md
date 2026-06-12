@@ -5,13 +5,13 @@ This playground demonstrates DeltaFlow using durable Postgres-backed stores:
 - DeltaStore: enqueue contact deltas
 - DispatchStore: convert pending deltas into outbox jobs
 - JobStore: claim/process jobs and mark synced
-- internal SyncWorker: orchestrates dispatch + claim + projector/applier + state transitions
+- public `deltaflow.SyncWorker`: orchestrates dispatch + claim + projector/applier + state transitions
 
 Scenario:
 
 - enqueue 3 Contact deltas
 - dispatch them to jobs
-- run `internal.SyncWorker.RunOnce` in a fixed drain loop for the three demo jobs
+- run `deltaflow.SyncWorker.RunOnce` in a fixed drain loop for the three demo jobs
 - upsert 2 contacts and delete 1 ghost contact (`con-999`)
 
 ## Requirements

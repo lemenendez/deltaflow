@@ -2,8 +2,18 @@
 
 DeltaFlow is a reconciliation worker.
 
-The core v0.2 focus is still the domain model and in-memory processing.
-This branch also includes a Postgres durable-store playground that exercises the v0.3/v0.4 direction.
+The current focus is the v0.5 latest-state MVP: public projector/applier
+interfaces, a public `deltaflow.SyncWorker`, durable Postgres stores, ghost
+delete handling, and transactional application outbox writes.
+
+Core flow:
+
+```text
+Delta -> SyncJob -> SyncWorker -> Projector.Project -> ProjectionApplier.Apply
+```
+
+If `Projector.Project` returns `ErrProjectionNotFound`, the worker treats the
+delta as a ghost and applies a delete operation.
 
 ## Playground
 
@@ -15,6 +25,7 @@ Standalone examples live under `playground/`.
 - `playground/04-postgres-crm`: concurrent CRM read-model workload using deterministic fake data, Postgres DeltaStore, two DeltaFlow workers, Redis/OpenSearch fanout simulation, ghost deletion, retry, and dead-letter simulation.
 
 The concrete Postgres delta store provides two clear write paths:
+
 - `Enqueue(ctx, delta)` for standalone inserts (tests, backfills, CLI/admin tools).
 - `EnqueueInTx(ctx, tx, delta)` when app writes and outbox inserts must share the same SQL transaction.
 
