@@ -220,6 +220,94 @@ WHERE id = $1`, "app-rollback").Scan(&writes); err != nil {
 	}
 }
 
+func TestPostgresContainer_V05AcceptanceTransactionalEnqueueContract(t *testing.T) {
+	ctx, db, deltaStore, _, _ := withPostgresStores(t)
+
+	t.Run("commit persists application write and delta", func(t *testing.T) {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("begin tx: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO public.deltaflow_it_application_writes (id, payload)
+VALUES ($1, $2)`, "v05-commit", "payload-commit"); err != nil {
+			t.Fatalf("insert app write: %v", err)
+		}
+
+		inserted, err := deltaStore.EnqueueInTx(ctx, tx, deltaflow.Delta{
+			SyncID:         syncA,
+			Origin:         deltaflow.OriginOperationUpdated,
+			ProjectionType: "Contact",
+			ProjectionKey:  contactKey("v05-commit"),
+		})
+		if err != nil {
+			t.Fatalf("enqueue tx: %v", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("commit tx: %v", err)
+		}
+
+		if _, ok, err := deltaStore.Get(ctx, inserted.ID); err != nil || !ok {
+			t.Fatalf("get committed delta: ok=%v err=%v", ok, err)
+		}
+		if countApplicationWrites(t, ctx, db, "v05-commit") != 1 {
+			t.Fatal("committed application write was not visible")
+		}
+	})
+
+	t.Run("rollback removes application write and delta", func(t *testing.T) {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("begin tx: %v", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO public.deltaflow_it_application_writes (id, payload)
+VALUES ($1, $2)`, "v05-rollback", "payload-rollback"); err != nil {
+			t.Fatalf("insert app write: %v", err)
+		}
+
+		inserted, err := deltaStore.EnqueueInTx(ctx, tx, deltaflow.Delta{
+			SyncID:         syncA,
+			Origin:         deltaflow.OriginOperationUpdated,
+			ProjectionType: "Contact",
+			ProjectionKey:  contactKey("v05-rollback"),
+		})
+		if err != nil {
+			t.Fatalf("enqueue tx: %v", err)
+		}
+
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("rollback tx: %v", err)
+		}
+
+		if _, ok, err := deltaStore.Get(ctx, inserted.ID); err != nil {
+			t.Fatalf("get rolled back delta: %v", err)
+		} else if ok {
+			t.Fatal("rolled back delta is still visible")
+		}
+		if countApplicationWrites(t, ctx, db, "v05-rollback") != 0 {
+			t.Fatal("rolled back application write is still visible")
+		}
+	})
+}
+
+func countApplicationWrites(t *testing.T, ctx context.Context, db *sql.DB, id string) int {
+	t.Helper()
+
+	var writes int
+	if err := db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM public.deltaflow_it_application_writes
+WHERE id = $1`, id).Scan(&writes); err != nil {
+		t.Fatalf("count app writes: %v", err)
+	}
+	return writes
+}
+
 func TestPostgresContainer_DispatchCreatesJobAndMarksDelta(t *testing.T) {
 	ctx, deltaStore, jobStore, dispatchStore := withStores(t)
 

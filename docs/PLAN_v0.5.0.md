@@ -11,6 +11,7 @@ Goal: formalize the latest-state MVP as a usable public Go API.
 - [x] Keep transactional application writes documented through `postgres.DeltaStore.EnqueueInTx`.
 - [x] Use existing playground fake/simple appliers as the canonical examples for now.
 - [x] Refresh README and DESIGN language around the current v0.5 shape.
+- [x] Add named v0.5 acceptance tests for worker behavior and transactional enqueue.
 - [ ] Add v0.5 release notes after the docs and public worker changes settle.
 
 ## Acceptance Criteria
@@ -20,6 +21,13 @@ Goal: formalize the latest-state MVP as a usable public Go API.
 - Ghost deletes are visible through `SyncJob.GhostDetected`.
 - The README points users to the current latest-state flow and playgrounds.
 - The roadmap no longer implies that fake/simple appliers are missing runtime work.
+
+## Acceptance Tests
+
+- `TestV05AcceptanceWorkerUpsertPath`
+- `TestV05AcceptanceWorkerGhostDeletePath`
+- `TestV05AcceptanceWorkerFailedApplyRetryAndDeadBehavior`
+- `TestPostgresContainer_V05AcceptanceTransactionalEnqueueContract`
 
 ## Deferred
 
