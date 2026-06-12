@@ -1,7 +1,5 @@
 # v0.4.0
 
-Status: draft. The `v0.4.0` tag has not been cut yet.
-
 DeltaFlow v0.4.0 focuses on Postgres lease hardening and transactional application-write patterns. The release makes worker ownership explicit, adds heartbeat-based lease renewal, improves lease observability, and expands the playgrounds used to validate concurrent writers and workers.
 
 ## Highlights
