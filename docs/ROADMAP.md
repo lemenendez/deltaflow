@@ -40,13 +40,31 @@ v0.5.0   latest_state MVP
          - README/DESIGN refresh for current latest-state MVP status
 
 v0.6.0   CLI + minimal YAML
-         - run worker
-         - config loading
+         - validate config
+         - migrate Postgres schema
+         - single minimal YAML shape
+         - no version field yet
          - sync_id
-         - retry config
+         - worker lease/retry config
+         - defer run worker until runtime wiring is designed
          - no connector registry
 
-v0.7.0   Worker throughput + batching
+v0.7.0   Elasticsearch applier + search example
+         - concrete Elasticsearch ProjectionApplier package
+         - upsert/delete support
+         - index config
+         - retryable vs permanent error classification where practical
+         - focused tests around operation mapping and error handling
+         - small search-oriented playground/example
+
+v0.8.0   CLI run + runtime wiring model
+         - decide explicit registry/plugin/host-binary story
+         - run worker from YAML using registered projectors/appliers
+         - keep runtime wiring explicit; do not infer app projectors by name
+         - support Postgres store wiring from config
+         - document how applications embed or wrap the runner
+
+v0.9.0   Worker throughput + batching
          - configurable worker concurrency:
            N goroutines per sync/worker process
          - configurable batch size:
@@ -61,11 +79,9 @@ v0.7.0   Worker throughput + batching
            worker.batch_size=M
          - validate with large playground runs using fixed seed/source universe/mutation count
 
-v0.8.0   Redis/Postgres appliers
+v0.10.0  Redis/Postgres appliers
 
-v0.9.0   Elasticsearch applier + search example
-
-v0.10.0  Metrics + logs + operational safety
+v0.11.0  Metrics + logs + operational safety
          - entity trace/debug command:
            given sync_id + projection_type + projection_key, explain "what happened"
            by fetching matching deltas, mapped jobs, attempts, final state, last error,
@@ -77,8 +93,8 @@ v0.10.0  Metrics + logs + operational safety
          - consider persisting/logging projection_key_hash and job_id in structured logs
            so traces can join SQL state and slog output reliably
 
-v0.11.0  Backfills
+v0.12.0  Backfills
 
-v0.12.0  API polish + docs + examples
+v0.13.0  API polish + docs + examples
 
 v1.0.0   Stable latest_state OSS release

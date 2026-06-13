@@ -29,6 +29,19 @@ The concrete Postgres delta store provides two clear write paths:
 - `Enqueue(ctx, delta)` for standalone inserts (tests, backfills, CLI/admin tools).
 - `EnqueueInTx(ctx, tx, delta)` when app writes and outbox inserts must share the same SQL transaction.
 
+## CLI
+
+The v0.6 CLI validates one minimal YAML shape and applies the embedded
+Postgres schema migrations:
+
+```bash
+go run ./cmd/deltaflow validate --config deltaflow.yaml
+go run ./cmd/deltaflow migrate --config deltaflow.yaml
+```
+
+`run` is intentionally deferred until DeltaFlow has an explicit runtime wiring
+model for application projectors and appliers.
+
 ## Development Hooks
 
 Set up the repo pre-commit hook:
