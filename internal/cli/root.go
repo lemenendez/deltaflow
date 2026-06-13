@@ -20,9 +20,10 @@ func NewRootCommand() *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
-		Use:          "deltaflow",
-		Short:        "DeltaFlow command line tools",
-		SilenceUsage: true,
+		Use:           "deltaflow",
+		Short:         "DeltaFlow command line tools",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	cmd.PersistentFlags().StringVarP(&opts.configPath, "config", "c", "deltaflow.yaml", "path to the DeltaFlow YAML config")

@@ -81,6 +81,85 @@ pipelines:
 	}
 }
 
+func TestLoadFileRejectsExplicitZeroOptionalWorkerIntegers(t *testing.T) {
+	body := `
+store:
+  type: postgres
+  dsn: postgres://deltaflow:deltaflow@localhost:5432/deltaflow?sslmode=disable
+
+workers:
+  concurrency: 8
+  lease_ttl: 30s
+  pull_size: 0
+  max_attempts: 0
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`
+
+	_, err := LoadFile(writeConfig(t, body), LoadOptions{})
+	if err == nil {
+		t.Fatal("LoadFile error = nil")
+	}
+
+	for _, want := range []string{
+		"workers.pull_size must be greater than 0",
+		"workers.max_attempts must be greater than 0",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not contain %q", err.Error(), want)
+		}
+	}
+}
+
+func TestLoadFileAllowsOmittedOptionalWorkerIntegers(t *testing.T) {
+	body := `
+store:
+  type: postgres
+  dsn: postgres://deltaflow:deltaflow@localhost:5432/deltaflow?sslmode=disable
+
+workers:
+  concurrency: 8
+  lease_ttl: 30s
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`
+
+	cfg, err := LoadFile(writeConfig(t, body), LoadOptions{})
+	if err != nil {
+		t.Fatalf("LoadFile error: %v", err)
+	}
+	if cfg.Workers.PullSize != nil {
+		t.Fatalf("PullSize = %v, want nil", *cfg.Workers.PullSize)
+	}
+	if cfg.Workers.MaxAttempts != nil {
+		t.Fatalf("MaxAttempts = %v, want nil", *cfg.Workers.MaxAttempts)
+	}
+}
+
 func TestLoadFileAppliesOverrides(t *testing.T) {
 	t.Setenv("DELTAFLOW_STORE_DSN", "postgres://old")
 

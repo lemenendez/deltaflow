@@ -35,8 +35,8 @@ type StoreConfig struct {
 type WorkersConfig struct {
 	Concurrency int    `koanf:"concurrency" validate:"required,gt=0"`
 	LeaseTTL    string `koanf:"lease_ttl" validate:"required"`
-	PullSize    int    `koanf:"pull_size" validate:"omitempty,gt=0"`
-	MaxAttempts int    `koanf:"max_attempts" validate:"omitempty,gt=0"`
+	PullSize    *int   `koanf:"pull_size" validate:"omitempty,gt=0"`
+	MaxAttempts *int   `koanf:"max_attempts" validate:"omitempty,gt=0"`
 }
 
 type PipelineConfig struct {
