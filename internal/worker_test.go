@@ -314,8 +314,8 @@ func TestSyncWorkerDispatchesDeltaToJobAtomically(t *testing.T) {
 		LockFor:  time.Minute,
 	}
 
-	if err := worker.dispatchDeltas(ctx); err != nil {
-		t.Fatalf("dispatchDeltas returned error: %v", err)
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
 	}
 
 	gotDelta := mustGetDelta(t, ctx, deltaStore, inserted.ID)
@@ -362,8 +362,8 @@ func TestSyncWorkerDispatchesOnlyOwnSyncDeltas(t *testing.T) {
 		LockFor:  time.Minute,
 	}
 
-	if err := worker.dispatchDeltas(ctx); err != nil {
-		t.Fatalf("dispatchDeltas returned error: %v", err)
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
 	}
 
 	ownGot := mustGetDelta(t, ctx, deltaStore, own.ID)

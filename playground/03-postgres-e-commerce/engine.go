@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lemenendez/deltaflow/internal"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
@@ -66,7 +65,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 		stats, err := playpg.RunWorkers(
 			ctx,
 			workerCount,
-			func(workerID string) *internal.SyncWorker {
+			func(workerID string) *deltaflow.SyncWorker {
 				worker := playpg.MakeWorker(stores, syncID, workerID, projector, deltaflow.ProjectionApplierFunc(scenario.target.apply), 64)
 				worker.Logger = fileLogger.Logger
 				return worker

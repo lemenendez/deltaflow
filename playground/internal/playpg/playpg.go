@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lemenendez/deltaflow/internal"
 	"github.com/lemenendez/deltaflow/pkg/connectors"
 	pgstore "github.com/lemenendez/deltaflow/pkg/connectors/postgres"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -157,8 +156,8 @@ func ResetSync(ctx context.Context, db *sql.DB, syncID deltaflow.SyncID) error {
 	return nil
 }
 
-func MakeWorker(stores *Stores, syncID deltaflow.SyncID, workerID string, projector deltaflow.Projector, applier deltaflow.ProjectionApplier, pullSize int) *internal.SyncWorker {
-	return &internal.SyncWorker{
+func MakeWorker(stores *Stores, syncID deltaflow.SyncID, workerID string, projector deltaflow.Projector, applier deltaflow.ProjectionApplier, pullSize int) *deltaflow.SyncWorker {
+	return &deltaflow.SyncWorker{
 		JobStore:   stores.JobStore,
 		Dispatcher: stores.DispatchStore,
 		Projector:  projector,
@@ -173,7 +172,7 @@ func MakeWorker(stores *Stores, syncID deltaflow.SyncID, workerID string, projec
 func RunWorkers(
 	ctx context.Context,
 	workerCount int,
-	makeWorker func(workerID string) *internal.SyncWorker,
+	makeWorker func(workerID string) *deltaflow.SyncWorker,
 	shouldStop func(context.Context) (bool, error),
 	afterRunOnce func(context.Context) error,
 ) (WorkerLoopStats, error) {

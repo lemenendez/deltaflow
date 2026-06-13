@@ -10,7 +10,6 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/lemenendez/deltaflow/internal"
 	"github.com/lemenendez/deltaflow/pkg/connectors"
 	pgstore "github.com/lemenendez/deltaflow/pkg/connectors/postgres"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -51,7 +50,7 @@ func main() {
 	projector := &countingProjector{projectFn: s.source.project}
 	applier := &countingApplier{applyFn: s.target.apply}
 
-	worker := internal.SyncWorker{
+	worker := deltaflow.SyncWorker{
 		JobStore:   jobStore,
 		Dispatcher: dispatchStore,
 		Projector:  projector,
@@ -79,7 +78,7 @@ func runWorkerLoop(
 	scenario contactSyncScenario,
 	syncID deltaflow.SyncID,
 	deltaStore deltaflow.DeltaStore,
-	worker *internal.SyncWorker,
+	worker *deltaflow.SyncWorker,
 	applier *countingApplier,
 	projector *countingProjector,
 ) (runStats, error) {
