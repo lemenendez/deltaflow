@@ -47,10 +47,10 @@ pipelines:
 
 ## Commands
 
-- `deltaflow validate --config deltaflow.yaml`
-- `deltaflow migrate --config deltaflow.yaml`
+- `deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml`
+- `deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml`
 
-`deltaflow run --config deltaflow.yaml` is deferred. A real run command needs a clear runtime wiring model for application projectors and appliers; v0.6 should not introduce a connector registry or pretend YAML names can instantiate application code.
+`deltaflow run --config ./cmd/deltaflow/deltaflow.yaml` is deferred. A real run command needs a clear runtime wiring model for application projectors and appliers; v0.6 should not introduce a connector registry or pretend YAML names can instantiate application code.
 
 ## Config Rules
 
