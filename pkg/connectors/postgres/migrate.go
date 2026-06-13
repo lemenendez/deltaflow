@@ -47,13 +47,31 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) ([]AppliedMigration, error
 		if err != nil {
 			return nil, err
 		}
-		if _, err := db.ExecContext(ctx, string(sqlBytes)); err != nil {
+		if err := execMigrationSQL(ctx, db, string(sqlBytes)); err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
 		applied = append(applied, AppliedMigration{Name: name})
 	}
 
 	return applied, nil
+}
+
+func execMigrationSQL(ctx context.Context, db *sql.DB, sqlText string) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, sqlText); err != nil {
+		// Migration files manage their own BEGIN/COMMIT. If a statement fails
+		// after BEGIN, clean up the transaction state on this same session
+		// before returning the connection to database/sql's pool.
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		return err
+	}
+
+	return nil
 }
 
 func ensureUUIDV7(ctx context.Context, db *sql.DB) error {

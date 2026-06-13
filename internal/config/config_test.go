@@ -81,6 +81,42 @@ pipelines:
 	}
 }
 
+func TestLoadFileReportsProjectionTypeFieldName(t *testing.T) {
+	body := `
+store:
+  type: postgres
+  dsn: postgres://deltaflow:deltaflow@localhost:5432/deltaflow?sslmode=disable
+
+workers:
+  concurrency: 8
+  lease_ttl: 30s
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`
+
+	_, err := LoadFile(writeConfig(t, body), LoadOptions{})
+	if err == nil {
+		t.Fatal("LoadFile error = nil")
+	}
+	if !strings.Contains(err.Error(), "pipelines[0].source.projection_type is required") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.Contains(err.Error(), "Projectiontype") {
+		t.Fatalf("error contains broken ProjectionType mapping: %v", err)
+	}
+}
+
 func TestLoadFileRejectsExplicitZeroOptionalWorkerIntegers(t *testing.T) {
 	body := `
 store:

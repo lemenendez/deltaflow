@@ -191,29 +191,46 @@ func validationIssues(err error) []string {
 }
 
 func configFieldName(namespace string) string {
-	replacer := strings.NewReplacer(
-		"Config.", "",
-		"Store.", "store.",
-		"Workers.", "workers.",
-		"Pipelines", "pipelines",
-		"PipelineConfig.", "",
-		"Source.", "source.",
-		"Projector.", "projector.",
-		"Target.", "target.",
-		"Applier.", "applier.",
-		"Type", "type",
-		"DSN", "dsn",
-		"Concurrency", "concurrency",
-		"LeaseTTL", "lease_ttl",
-		"PullSize", "pull_size",
-		"MaxAttempts", "max_attempts",
-		"Name", "name",
-		"SyncID", "sync_id",
-		"ProjectionType", "projection_type",
-		"Index", "index",
-		"Mode", "mode",
-	)
-	return strings.Trim(replacer.Replace(namespace), ".")
+	segmentNames := map[string]string{
+		"Store":          "store",
+		"Workers":        "workers",
+		"Pipelines":      "pipelines",
+		"Source":         "source",
+		"Projector":      "projector",
+		"Target":         "target",
+		"Applier":        "applier",
+		"Type":           "type",
+		"DSN":            "dsn",
+		"Concurrency":    "concurrency",
+		"LeaseTTL":       "lease_ttl",
+		"PullSize":       "pull_size",
+		"MaxAttempts":    "max_attempts",
+		"Name":           "name",
+		"SyncID":         "sync_id",
+		"ProjectionType": "projection_type",
+		"Index":          "index",
+		"Mode":           "mode",
+	}
+
+	parts := strings.Split(namespace, ".")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" || part == "Config" {
+			continue
+		}
+
+		name, suffix, _ := strings.Cut(part, "[")
+		mapped, ok := segmentNames[name]
+		if !ok {
+			mapped = name
+		}
+		if suffix != "" {
+			mapped += "[" + suffix
+		}
+		out = append(out, mapped)
+	}
+
+	return strings.Join(out, ".")
 }
 
 func dedupe(values []string) []string {
