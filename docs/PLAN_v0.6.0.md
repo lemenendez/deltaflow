@@ -10,7 +10,7 @@ Goal: add a small operator-facing CLI and one minimal YAML configuration shape f
 - [x] Add `internal/cli/migrate.go`.
 - [x] Defer `internal/cli/run.go` until the runtime wiring model is designed.
 - [x] Add config loading from a single YAML shape.
-- [x] Support environment interpolation for string values such as `${DELTAFLOW_STORE_DSN}`.
+- [x] Support environment interpolation for string values using `${DELTAFLOW_STORE_DSN}` and `$DELTAFLOW_STORE_DSN`.
 - [x] Add config validation for store, workers, and pipelines.
 - [x] Add Postgres migration command using existing `pkg/connectors/postgres/migrations`.
 - [x] Update README and ROADMAP references for the v0.6 CLI shape.
@@ -45,6 +45,11 @@ pipelines:
       mode: upsert
 ```
 
+Config loading expands environment variables with Go's `os.ExpandEnv`, so both
+`${VAR}` and `$VAR` forms are supported. Expansion runs before YAML parsing, so
+quoted YAML strings are expanded too; avoid literal `$NAME` sequences in config
+values such as DSNs.
+
 ## Commands
 
 - `deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml`
@@ -72,7 +77,7 @@ pipelines:
 
 - `deltaflow validate --config deltaflow.yaml` exits successfully for the canonical YAML shape.
 - `deltaflow validate --config deltaflow.yaml` reports actionable errors for missing DSN, malformed durations, empty pipeline lists, missing `sync_id`, and unsupported store/source types.
-- `${DELTAFLOW_STORE_DSN}` resolves from the environment before validation.
+- `${DELTAFLOW_STORE_DSN}` and `$DELTAFLOW_STORE_DSN` resolve from the environment before validation.
 - `deltaflow migrate --config deltaflow.yaml` applies the existing Postgres migrations against `store.dsn`.
 - The CLI does not expose a working `run` command in v0.6.
 - The CLI does not include a connector registry in v0.6.

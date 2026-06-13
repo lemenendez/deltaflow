@@ -39,6 +39,11 @@ go run ./cmd/deltaflow validate --config deltaflow.yaml
 go run ./cmd/deltaflow migrate --config deltaflow.yaml
 ```
 
+Config loading expands environment variables with Go's `os.ExpandEnv`, so both
+`${VAR}` and `$VAR` placeholders are supported. Expansion runs before YAML
+parsing, so quoted YAML strings are expanded too; avoid literal `$NAME`
+sequences in config values such as DSNs.
+
 `run` is intentionally deferred until DeltaFlow has an explicit runtime wiring
 model for application projectors and appliers.
 
