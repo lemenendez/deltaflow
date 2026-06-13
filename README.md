@@ -35,8 +35,8 @@ The v0.6 CLI validates one minimal YAML shape and applies the embedded
 Postgres schema migrations:
 
 ```bash
-go run ./cmd/deltaflow validate --config deltaflow.yaml
-go run ./cmd/deltaflow migrate --config deltaflow.yaml
+go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
+go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
 ```
 
 Config loading expands environment variables with Go's `os.ExpandEnv`, so both

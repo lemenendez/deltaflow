@@ -75,10 +75,10 @@ values such as DSNs.
 
 ## Acceptance Criteria
 
-- `deltaflow validate --config deltaflow.yaml` exits successfully for the canonical YAML shape.
-- `deltaflow validate --config deltaflow.yaml` reports actionable errors for missing DSN, malformed durations, empty pipeline lists, missing `sync_id`, and unsupported store/source types.
+- `deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml` exits successfully for the canonical YAML shape.
+- `deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml` reports actionable errors for missing DSN, malformed durations, empty pipeline lists, missing `sync_id`, and unsupported store/source types.
 - `${DELTAFLOW_STORE_DSN}` and `$DELTAFLOW_STORE_DSN` resolve from the environment before validation.
-- `deltaflow migrate --config deltaflow.yaml` applies the existing Postgres migrations against `store.dsn`.
+- `deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml` applies the existing Postgres migrations against `store.dsn`.
 - The CLI does not expose a working `run` command in v0.6.
 - The CLI does not include a connector registry in v0.6.
 
