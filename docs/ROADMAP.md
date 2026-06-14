@@ -50,13 +50,14 @@ v0.6.0   CLI + minimal YAML
          - defer run worker until runtime wiring is designed
          - no connector registry
 
-v0.7.0   Elasticsearch applier + search example
+v0.7.0   Elasticsearch applier + real search playground
          - concrete Elasticsearch ProjectionApplier package
          - upsert/delete support
-         - index config
+         - explicit index/client config from Go code
          - retryable vs permanent error classification where practical
          - focused tests around operation mapping and error handling
-         - small search-oriented playground/example
+         - update current search-oriented playgrounds to use Elasticsearch
+         - document REST write -> transactional Delta enqueue -> async Elasticsearch sync
 
 v0.8.0   CLI run + runtime wiring model
          - decide explicit registry/plugin/host-binary story

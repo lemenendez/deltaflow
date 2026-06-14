@@ -22,7 +22,7 @@ type mutation struct {
 
 type scenario struct {
 	source *catalogStore
-	target *searchIndexSimulator
+	target searchTarget
 	events []mutation
 }
 
@@ -87,10 +87,10 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 		return nil, err
 	}
 
-	target := newSearchIndexSimulator(
-		map[string]bool{retryProductID: true},
-		map[string]bool{deadID: true},
-	)
+	target, err := newSearchTarget(ctx, retryProductID, deadID)
+	if err != nil {
+		return nil, err
+	}
 
 	events := make([]mutation, 0, mutationCount+3)
 	kinds := []string{"description", "image", "discount", "inventory", "free_shipping", "promotion", "checkout_wording"}

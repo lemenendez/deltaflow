@@ -24,7 +24,7 @@ type mutation struct {
 
 type scenario struct {
 	source *crmStore
-	target *crmTargetSimulator
+	target crmTarget
 	events []mutation
 }
 
@@ -106,10 +106,14 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 		retryCustomerID = customerIDs[1]
 	}
 
-	target := newCRMTargetSimulator(
+	target, err := newCRMTarget(
+		ctx,
 		map[string]bool{string(custProjection) + "/" + retryCustomerID: true},
 		map[string]bool{string(orderProjection) + "/" + deadOrderID: true},
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	events := make([]mutation, 0, mutationCount+3)
 	orderIDs := sortedKeys(orders)

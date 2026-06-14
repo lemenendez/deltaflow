@@ -49,6 +49,11 @@ type crmStore struct {
 	db *sql.DB
 }
 
+type crmTarget interface {
+	deltaflow.ProjectionApplier
+	snapshot(ctx context.Context) (map[string][]byte, []string, []string, map[string][]byte, int, int, int, error)
+}
+
 func newCRMStore(db *sql.DB) *crmStore {
 	return &crmStore{db: db}
 }
@@ -393,7 +398,11 @@ func (t *crmTargetSimulator) applyUpsert(op deltaflow.ProjectionOperation, id st
 	}
 }
 
-func (t *crmTargetSimulator) snapshot() (map[string][]byte, []string, []string, int, int, int) {
+func (t *crmTargetSimulator) Apply(ctx context.Context, op deltaflow.ProjectionOperation) error {
+	return t.apply(ctx, op)
+}
+
+func (t *crmTargetSimulator) snapshot(_ context.Context) (map[string][]byte, []string, []string, map[string][]byte, int, int, int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -403,7 +412,7 @@ func (t *crmTargetSimulator) snapshot() (map[string][]byte, []string, []string, 
 	}
 	searchQueue := append([]string(nil), t.searchQueue...)
 	orderQueue := append([]string(nil), t.redisOrderQueue...)
-	return views, searchQueue, orderQueue, t.upserts, t.deletes, t.failures
+	return views, searchQueue, orderQueue, nil, t.upserts, t.deletes, t.failures, nil
 }
 
 type countingProjector struct {

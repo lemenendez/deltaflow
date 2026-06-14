@@ -20,7 +20,11 @@ func printReport(result demoResult) {
 	fmt.Printf("- %d application-side actors updated durable Postgres CRM rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
 	fmt.Printf("- %d DeltaFlow workers concurrently dispatched, claimed, projected, and applied those jobs from Postgres.\n", workerCount)
 	fmt.Println("- Projector reads the latest CRM row and builds user/customer/order projections.")
-	fmt.Println("- Applier simulates Redis views plus OpenSearch/order fanout; no real Redis/OpenSearch connector is used yet.")
+	if elasticsearchEndpoint == "" {
+		fmt.Println("- Applier simulates Redis views plus search/order fanout because DELTAFLOW_ES_ENDPOINT is not set.")
+	} else {
+		fmt.Printf("- Applier maintains simulated Redis views and writes search fanout documents to Elasticsearch at %s.\n", elasticsearchEndpoint)
+	}
 	fmt.Println()
 
 	fmt.Println("Workload")
@@ -55,14 +59,21 @@ func printReport(result demoResult) {
 	fmt.Printf("- Worker and lease log: %s.\n", result.WorkerLogPath)
 	fmt.Println()
 
-	fmt.Println("Simulated Redis/OpenSearch result")
+	if elasticsearchEndpoint == "" {
+		fmt.Println("Simulated Redis/Search result")
+	} else {
+		fmt.Println("Redis/Elasticsearch result")
+	}
 	fmt.Printf("- Upserts: %d, deletes: %d, target failures observed: %d.\n", result.TargetUpserts, result.TargetDeletes, result.TargetFailures)
-	fmt.Printf("- Redis views: %d. OpenSearch queue events: %d. Redis order events: %d.\n", len(result.Views), len(result.SearchQueue), len(result.RedisOrderQueue))
+	fmt.Printf("- Redis views: %d. Search fanout events: %d. Redis order events: %d.\n", len(result.Views), len(result.SearchQueue), len(result.RedisOrderQueue))
+	if elasticsearchEndpoint != "" {
+		fmt.Printf("- Elasticsearch docs: %d. Search digest: %s.\n", len(result.SearchDocs), playpg.StableDigest(result.SearchDocs))
+	}
 	fmt.Printf("- Redis view digest: %s.\n", result.Digest)
 	if key, sample, ok := playpg.FirstSample(result.Views); ok {
 		fmt.Printf("- Sample view %s: %s\n", key, sample)
 	}
-	fmt.Printf("- Last OpenSearch queue events: %s.\n", queueTail(result.SearchQueue, 5))
+	fmt.Printf("- Last search fanout events: %s.\n", queueTail(result.SearchQueue, 5))
 }
 
 func mutationBreakdown(events []mutation) map[string]int {

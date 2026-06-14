@@ -10,11 +10,13 @@ The scenario simulates:
 - deterministic fake users/customers/orders from `gofakeit` with a fixed seed
 - API/worker mutations update durable Postgres CRM tables and enqueue every change through `DeltaStore.EnqueueInTx`
 - Redis-style latest read views in a simulated applier
-- OpenSearch/Redis queue boundary in a simulated applier for order/search fanout
+- Elasticsearch-backed search fanout through the concrete Elasticsearch applier
 - ghost deletion for a stale customer view
 - transient retry and dead-letter behavior without crashing a process
 
-The CRM source and DeltaFlow stores are durable Postgres tables. The projector connector is not implemented yet, so this playground stops at the projection/applier boundary and simulates what would be sent to Redis/OpenSearch.
+The CRM source and DeltaFlow stores are durable Postgres tables. The docker compose run starts Elasticsearch and uses the concrete applier for the search fanout side while keeping Redis views and order publication as local simulations. A direct local `go run .` without `DELTAFLOW_ES_ENDPOINT` still falls back to the all-simulated target.
+
+The REST/API consistency model is represented by the writer stage: every application-side CRM mutation and its Delta are committed in the same Postgres transaction through `DeltaStore.EnqueueInTx`. Elasticsearch is updated asynchronously by DeltaFlow workers after the transaction commits.
 
 ## Run
 
@@ -43,7 +45,7 @@ The workload always adds three special deltas on top of `MUTATION_COUNT`: one re
 
 Useful commands:
 
-- `make up` to start Postgres
+- `make up` to start Postgres and Elasticsearch
 - `make migrate` to apply schema
 - `make reset` to drop/recreate the schema
 - `make down` to stop and remove containers/volumes
