@@ -15,7 +15,7 @@ DeltaFlow v0.5.0 formalizes the latest-state MVP as a usable public Go API. The 
 
 - `deltaflow.SyncWorker` dispatches pending deltas, claims one sync job, projects latest state, applies the resulting operation, and records the outcome.
 - `deltaflow.SyncWorker.RunOnce(ctx)` processes at most one claimed job.
-- `deltaflow.SyncWorkerConfig` validates the required runtime identity: `sync_id`, `worker_id`, and positive lease duration.
+- `deltaflow.SyncWorkerConfig` validates the required runtime config: `sync_id`, `worker_id`, and positive `lock_for` duration.
 - `deltaflow.Projector` remains:
   - `Project(ctx context.Context, identity ProjectionIdentity) (Projection, error)`
 - `deltaflow.ProjectionApplier` remains:
