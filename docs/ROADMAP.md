@@ -84,6 +84,9 @@ v0.9.0   Worker throughput + batching
 v0.10.0  Redis/Postgres appliers
 
 v0.11.0  Metrics + logs + operational safety
+         - applier-level telemetry/logging for concrete target appliers:
+           operation, result, retryable, status_code, and latency
+         - Prometheus-compatible examples and Grafana dashboard guidance
          - entity trace/debug command:
            given sync_id + projection_type + projection_key, explain "what happened"
            by fetching matching deltas, mapped jobs, attempts, final state, last error,

@@ -36,8 +36,9 @@ The applier should be usable directly by applications and playgrounds:
 
 ```go
 applier := elasticsearch.NewApplier(elasticsearch.ApplierConfig{
-    Client: client,
-    Index:  "products",
+    Client:   client,
+    Endpoint: "http://localhost:9200",
+    Index:    "products",
 })
 ```
 
@@ -58,12 +59,12 @@ Each updated playground should show:
 
 ## Acceptance Criteria
 
-- The Elasticsearch applier passes unit tests without requiring a live Elasticsearch service.
-- At least one playground can run with Postgres plus Elasticsearch through docker compose.
-- The playground verifies indexed documents after worker drain, not only worker counters.
-- Ghost deletion removes the Elasticsearch document or treats a missing Elasticsearch document as successful.
-- README/playground docs explain the REST/API consistency model in concrete terms.
-- `docs/ROADMAP.md` still keeps CLI `run` and runtime registry decisions in v0.8.0.
+- [x] The Elasticsearch applier passes unit tests without requiring a live Elasticsearch service.
+- [x] Both search-oriented playgrounds can run with Postgres plus Elasticsearch through docker compose.
+- [x] The playgrounds verify indexed documents after worker drain, not only worker counters.
+- [x] Ghost deletion removes the Elasticsearch document or treats a missing Elasticsearch document as successful.
+- [x] README/playground docs explain the REST/API consistency model in concrete terms.
+- [x] `docs/ROADMAP.md` still keeps CLI `run` and runtime registry decisions in v0.8.0.
 
 ## Out of Scope
 
@@ -72,3 +73,4 @@ Each updated playground should show:
 - Connector registry/plugin model.
 - Worker batching and throughput changes.
 - Redis/Postgres target appliers.
+- Applier-level metrics/logging, Prometheus examples, and Grafana dashboards; these remain part of the v0.11 observability milestone.
