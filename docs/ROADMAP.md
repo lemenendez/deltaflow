@@ -46,7 +46,7 @@ v0.6.0   CLI + minimal YAML
          - single minimal YAML shape
          - no version field yet
          - sync_id
-         - workers lease/retry config
+         - workers.lease_ttl / workers.max_attempts config
          - defer run worker until runtime wiring is designed
          - no connector registry
 
