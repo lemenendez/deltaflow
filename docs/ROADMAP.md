@@ -38,6 +38,7 @@ v0.5.0   latest_state MVP
          - documented app transaction example using EnqueueInTx
          - point users at existing fake/simple applier playgrounds
          - README/DESIGN refresh for current latest-state MVP status
+         - release notes
 
 v0.6.0   CLI + minimal YAML
          - validate config
@@ -45,7 +46,7 @@ v0.6.0   CLI + minimal YAML
          - single minimal YAML shape
          - no version field yet
          - sync_id
-         - worker lease/retry config
+         - workers.lease_ttl / workers.max_attempts config
          - defer run worker until runtime wiring is designed
          - no connector registry
 
@@ -75,8 +76,8 @@ v0.9.0   Worker throughput + batching
          - benchmark against playground baseline:
            current one-job-per-RunOnce drain time vs N routines x M batch size
          - expose config in CLI/YAML:
-           worker.concurrency=N
-           worker.batch_size=M
+           workers.concurrency=N
+           workers.batch_size=M
          - validate with large playground runs using fixed seed/source universe/mutation count
 
 v0.10.0  Redis/Postgres appliers
