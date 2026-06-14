@@ -16,7 +16,7 @@ Telemetry stance for this milestone:
 
 - Use structured logs with Go `log/slog` as the primary signal path.
 - Emit low-cardinality counters/timers through a small telemetry interface so Prometheus exporters can be plugged in cleanly.
-- Keep concrete Prometheus/Grafana packaging lightweight in v0.4 and expand in v0.9 metrics/logs hardening.
+- Keep concrete Prometheus/Grafana packaging lightweight in v0.4 and expand in v0.11 metrics/logs hardening.
 
 Scope checklist:
 

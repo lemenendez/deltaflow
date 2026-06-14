@@ -12,7 +12,7 @@ Goal: formalize the latest-state MVP as a usable public Go API.
 - [x] Use existing playground fake/simple appliers as the canonical examples for now.
 - [x] Refresh README and DESIGN language around the current v0.5 shape.
 - [x] Add named v0.5 acceptance tests for worker behavior and transactional enqueue.
-- [ ] Add v0.5 release notes after the docs and public worker changes settle.
+- [x] Add v0.5 release notes after the docs and public worker changes settle.
 
 ## Acceptance Criteria
 
