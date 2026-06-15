@@ -35,11 +35,14 @@ Initial behavior:
 The applier should be usable directly by applications and playgrounds:
 
 ```go
-applier := elasticsearch.NewApplier(elasticsearch.ApplierConfig{
+applier, err := elasticsearch.NewApplier(elasticsearch.ApplierConfig{
     Client:   client,
     Endpoint: "http://localhost:9200",
     Index:    "products",
 })
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ## Playground Updates

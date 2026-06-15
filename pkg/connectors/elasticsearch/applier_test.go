@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,8 +18,11 @@ func TestApplierUpsertMapsProjectionToIndexRequest(t *testing.T) {
 		gotMethod = r.Method
 		gotPath = r.URL.String()
 		gotContentType = r.Header.Get("Content-Type")
-		body := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+			return
+		}
 		gotBody = string(body)
 		w.WriteHeader(http.StatusCreated)
 	}))
