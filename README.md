@@ -5,7 +5,7 @@ DeltaFlow is a reconciliation worker.
 The current focus is the latest-state worker path: public projector/applier
 interfaces, a public `deltaflow.SyncWorker`, durable Postgres stores, ghost
 delete handling, transactional application outbox writes, and concrete
-Elasticsearch target application.
+Elasticsearch `ProjectionApplier`.
 
 Core flow:
 

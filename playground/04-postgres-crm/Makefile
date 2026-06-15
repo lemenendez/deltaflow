@@ -1,6 +1,6 @@
 DC ?= docker compose
 PG_SERVICE ?= postgres
-SYNC_ID ?= playground-04-crm-to-redis-opensearch
+SYNC_ID ?= playground-04-crm-to-redis-elasticsearch
 LOG_LINES ?= 100
 SIM_SEED ?= 4004
 USER_COUNT ?= 8

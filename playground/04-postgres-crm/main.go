@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	syncID          = "playground-04-crm-to-redis-opensearch"
+	syncID          = "playground-04-crm-to-redis-elasticsearch"
 	userProjection  = "CRMUserView"
 	custProjection  = "CRMCustomerView"
 	orderProjection = "CRMOrderFanout"

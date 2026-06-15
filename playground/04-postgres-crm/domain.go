@@ -258,10 +258,10 @@ func (s *crmStore) project(ctx context.Context, identity deltaflow.ProjectionIde
 			return projectionOrNotFound(err, ok)
 		}
 		return playpg.JSONProjection(identity, map[string]any{
-			"redis_stream":       "orders:events",
-			"opensearch_queue":   "orders:index",
-			"order":              o,
-			"customer_cache_key": "customer:" + o.CustomerID,
+			"redis_stream":        "orders:events",
+			"elasticsearch_index": "orders:index",
+			"order":               o,
+			"customer_cache_key":  "customer:" + o.CustomerID,
 		})
 	default:
 		return deltaflow.Projection{}, fmt.Errorf("unsupported projection type %q", identity.Type)
