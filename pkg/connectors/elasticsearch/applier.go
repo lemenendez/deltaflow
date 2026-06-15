@@ -135,17 +135,26 @@ func (a *Applier) do(req *http.Request, opType deltaflow.ProjectionOperationType
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return nil
 	}
-	if opType == deltaflow.ProjectionOpDelete && resp.StatusCode == http.StatusNotFound {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if opType == deltaflow.ProjectionOpDelete && resp.StatusCode == http.StatusNotFound && isMissingDocumentDelete(body) {
 		return nil
 	}
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return &ResponseError{
 		Operation:  opType,
 		StatusCode: resp.StatusCode,
 		Retryable:  isRetryableStatus(resp.StatusCode),
 		Body:       strings.TrimSpace(string(body)),
 	}
+}
+
+func isMissingDocumentDelete(body []byte) bool {
+	var payload struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	return payload.Result == "not_found"
 }
 
 func (a *Applier) documentURL(documentID string) string {

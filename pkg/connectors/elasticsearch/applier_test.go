@@ -72,6 +72,7 @@ func TestApplierDeleteTreatsMissingDocumentAsSuccess(t *testing.T) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"_index":"products","_id":"sku-ghost-001","result":"not_found"}`))
 	}))
 	defer server.Close()
 
@@ -99,6 +100,41 @@ func TestApplierDeleteTreatsMissingDocumentAsSuccess(t *testing.T) {
 	}
 	if gotPath != "/products/_doc/sku-ghost-001" {
 		t.Fatalf("path = %s", gotPath)
+	}
+}
+
+func TestApplierDeleteReturnsResponseErrorForMissingIndex(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"type":"index_not_found_exception","reason":"no such index [products]"},"status":404}`))
+	}))
+	defer server.Close()
+
+	applier, err := NewApplier(ApplierConfig{
+		Client:   server.Client(),
+		Endpoint: server.URL,
+		Index:    "products",
+		DocumentID: func(deltaflow.ProjectionIdentity) (string, error) {
+			return "sku-001", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = applier.Apply(context.Background(), deltaflow.ProjectionOperation{
+		Type:     deltaflow.ProjectionOpDelete,
+		Identity: identity(t, "sku-001"),
+	})
+	var responseErr *ResponseError
+	if !errors.As(err, &responseErr) {
+		t.Fatalf("error = %T, want ResponseError", err)
+	}
+	if responseErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("StatusCode = %d, want %d", responseErr.StatusCode, http.StatusNotFound)
+	}
+	if responseErr.Retryable {
+		t.Fatal("Retryable = true, want false")
 	}
 }
 
