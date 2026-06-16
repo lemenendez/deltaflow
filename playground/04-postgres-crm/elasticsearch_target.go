@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	es "github.com/lemenendez/deltaflow/pkg/connectors/elasticsearch"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -18,6 +19,7 @@ import (
 )
 
 const elasticsearchIndex = "deltaflow_crm"
+const elasticsearchHTTPTimeout = 10 * time.Second
 
 func newCRMTarget(ctx context.Context, failOnce map[string]bool, deadLetters map[string]bool) (crmTarget, error) {
 	if elasticsearchEndpoint == "" {
@@ -51,7 +53,7 @@ type elasticsearchCRMTarget struct {
 }
 
 func newElasticsearchCRMTarget(endpoint, index string, failOnce map[string]bool, deadLetters map[string]bool) (*elasticsearchCRMTarget, error) {
-	client := http.DefaultClient
+	client := &http.Client{Timeout: elasticsearchHTTPTimeout}
 	applier, err := es.NewApplier(es.ApplierConfig{
 		Client:   client,
 		Endpoint: endpoint,

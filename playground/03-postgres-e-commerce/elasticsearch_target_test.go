@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-func TestNewElasticsearchCRMTargetUsesTimeoutClient(t *testing.T) {
-	target, err := newElasticsearchCRMTarget("http://localhost:9200", "crm", nil, nil)
+func TestNewElasticsearchTargetUsesTimeoutClient(t *testing.T) {
+	target, err := newElasticsearchTarget("http://localhost:9200", "products", "retry-001", "dead-001")
 	if err != nil {
 		t.Fatal(err)
 	}

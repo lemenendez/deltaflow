@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	es "github.com/lemenendez/deltaflow/pkg/connectors/elasticsearch"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -18,6 +19,7 @@ import (
 )
 
 const elasticsearchIndex = "deltaflow_products"
+const elasticsearchHTTPTimeout = 10 * time.Second
 
 func newSearchTarget(ctx context.Context, retryProductID, deadID string) (searchTarget, error) {
 	if elasticsearchEndpoint == "" {
@@ -52,7 +54,7 @@ type elasticsearchTarget struct {
 }
 
 func newElasticsearchTarget(endpoint, index, retryProductID, deadID string) (*elasticsearchTarget, error) {
-	client := http.DefaultClient
+	client := &http.Client{Timeout: elasticsearchHTTPTimeout}
 	applier, err := es.NewApplier(es.ApplierConfig{
 		Client:   client,
 		Endpoint: endpoint,
@@ -207,7 +209,11 @@ func closeResponse(resp *http.Response) error {
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return errors.New(strings.TrimSpace(string(body)))
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		message = resp.Status
+	}
+	return errors.New(message)
 }
 
 const indexMapping = `{
