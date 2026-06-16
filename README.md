@@ -2,9 +2,10 @@
 
 DeltaFlow is a reconciliation worker.
 
-The current focus is the v0.5 latest-state MVP: public projector/applier
+The current focus is the latest-state worker path: public projector/applier
 interfaces, a public `deltaflow.SyncWorker`, durable Postgres stores, ghost
-delete handling, and transactional application outbox writes.
+delete handling, transactional application outbox writes, and concrete
+Elasticsearch `ProjectionApplier`.
 
 Core flow:
 
@@ -21,13 +22,23 @@ Standalone examples live under `playground/`.
 
 - `playground/01-in-memory`: in-memory latest-state flow using the public DeltaFlow API.
 - `playground/02-postgres`: Postgres-backed Contact delta flow using DeltaStore, DispatchStore, and JobStore via docker compose.
-- `playground/03-postgres-e-commerce`: concurrent product-search workload using deterministic fake data, Postgres DeltaStore, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation.
-- `playground/04-postgres-crm`: concurrent CRM read-model workload using deterministic fake data, Postgres DeltaStore, two DeltaFlow workers, Redis/OpenSearch fanout simulation, ghost deletion, retry, and dead-letter simulation.
+- `playground/03-postgres-e-commerce`: concurrent product-search workload using deterministic fake data, Postgres DeltaStore, two DeltaFlow workers, Elasticsearch, ghost deletion, retry, and dead-letter simulation.
+- `playground/04-postgres-crm`: concurrent CRM read-model workload using deterministic fake data, Postgres DeltaStore, two DeltaFlow workers, simulated Redis views plus Elasticsearch search fanout, ghost deletion, retry, and dead-letter simulation.
 
 The concrete Postgres delta store provides two clear write paths:
 
 - `Enqueue(ctx, delta)` for standalone inserts (tests, backfills, CLI/admin tools).
 - `EnqueueInTx(ctx, tx, delta)` when app writes and outbox inserts must share the same SQL transaction.
+
+The concrete Elasticsearch applier lives in `pkg/connectors/elasticsearch` and
+maps `ProjectionOpUpsert`/`ProjectionOpDelete` to idempotent Elasticsearch
+document writes.
+
+The Elasticsearch playgrounds use that public applier directly. Their
+`elasticsearch_target.go` files are demo glue around the applier: index
+reset/seed, failure simulation, counters, snapshots, and local fallback
+behavior. Application projectors and target-specific document shape remain
+custom code owned by the application.
 
 ## CLI
 

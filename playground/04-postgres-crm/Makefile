@@ -1,6 +1,6 @@
 DC ?= docker compose
 PG_SERVICE ?= postgres
-SYNC_ID ?= playground-04-crm-to-redis-opensearch
+SYNC_ID ?= playground-04-crm-to-redis-elasticsearch
 LOG_LINES ?= 100
 SIM_SEED ?= 4004
 USER_COUNT ?= 8
@@ -17,7 +17,7 @@ export SIM_SEED USER_COUNT CUSTOMER_COUNT ORDER_COUNT MUTATION_COUNT WRITER_COUN
 .PHONY: up down pgcompat migrate run reset logs counts deltas pending-deltas jobs jobs-by-state dead-jobs worker-log worker-log-beautify beautify
 
 up:
-	$(DC) up -d --wait $(PG_SERVICE)
+	$(DC) up -d --wait $(PG_SERVICE) elasticsearch
 
 down:
 	$(DC) down --volumes --remove-orphans
@@ -42,7 +42,7 @@ reset: up
 	$(MAKE) migrate
 
 logs:
-	$(DC) logs -f $(PG_SERVICE)
+	$(DC) logs -f $(PG_SERVICE) elasticsearch
 
 counts: up
 	$(PSQL) -c "SELECT 'deltas' AS table_name, state, COUNT(*) AS count FROM deltaflow.deltaflow_deltas WHERE sync_id = '$(SYNC_ID)' GROUP BY state UNION ALL SELECT 'jobs' AS table_name, state, COUNT(*) AS count FROM deltaflow.deltaflow_sync_jobs WHERE sync_id = '$(SYNC_ID)' GROUP BY state ORDER BY table_name, state;"

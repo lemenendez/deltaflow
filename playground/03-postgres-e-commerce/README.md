@@ -9,11 +9,26 @@ The scenario simulates:
 - 2 DeltaFlow workers claiming jobs from the same Postgres-backed sync
 - deterministic fake product data from `gofakeit` with a fixed seed
 - application writers update durable Postgres product tables and enqueue every change through `DeltaStore.EnqueueInTx`
-- Elasticsearch-style product index updates in a simulated applier
+- Elasticsearch product index updates through the concrete Elasticsearch applier
 - ghost deletion for a stale product document
 - transient retry and dead-letter behavior as target-side failures on normal product updates
 
-The product source and DeltaFlow stores are durable Postgres tables. The target is intentionally an Elasticsearch simulator because the projector connector is not implemented yet. The playground exercises the flow up to the projection/applier boundary.
+The product source and DeltaFlow stores are durable Postgres tables. The docker compose run starts Elasticsearch and uses the concrete applier in `pkg/connectors/elasticsearch`. A direct local `go run .` without `DELTAFLOW_ES_ENDPOINT` still falls back to the simulator for quick development.
+
+The REST/API consistency model is represented by the writer stage: every application-side product mutation and its Delta are committed in the same Postgres transaction through `DeltaStore.EnqueueInTx`. Elasticsearch is updated asynchronously by DeltaFlow workers after the transaction commits.
+
+## Public API vs Playground Glue
+
+This playground uses the public Elasticsearch applier from `pkg/connectors/elasticsearch` for the real target writes. `elasticsearch_target.go` wraps that applier only for demo concerns:
+
+- create/reset the demo Elasticsearch index
+- seed a stale ghost document
+- map projection keys to product document IDs
+- inject retry/dead-letter failures
+- count applied operations and snapshot indexed documents for the report
+- fall back to the in-memory simulator when `DELTAFLOW_ES_ENDPOINT` is unset
+
+The application-owned work is still explicit: `domain.go` defines the source model and projector, `engine.go` wires `SyncWorker`, and the writer path enqueues Deltas transactionally with source writes.
 
 ## Run
 
@@ -40,7 +55,7 @@ The workload always adds three special deltas on top of `MUTATION_COUNT`: one re
 
 Useful commands:
 
-- `make up` to start Postgres
+- `make up` to start Postgres and Elasticsearch
 - `make migrate` to apply schema
 - `make reset` to drop/recreate the schema
 - `make down` to stop and remove containers/volumes

@@ -66,7 +66,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 			ctx,
 			workerCount,
 			func(workerID string) *deltaflow.SyncWorker {
-				worker := playpg.MakeWorker(stores, syncID, workerID, projector, deltaflow.ProjectionApplierFunc(scenario.target.apply), 64)
+				worker := playpg.MakeWorker(stores, syncID, workerID, projector, scenario.target, 64)
 				worker.Logger = fileLogger.Logger
 				return worker
 			},
@@ -114,7 +114,10 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	if err != nil {
 		return demoResult{}, err
 	}
-	docs, upserts, deletes, failures := scenario.target.snapshot()
+	docs, upserts, deletes, failures, err := scenario.target.snapshot(ctx)
+	if err != nil {
+		return demoResult{}, err
+	}
 	timings := playpg.RunTimings{
 		Setup:   setupElapsed,
 		Enqueue: enqueueElapsed,

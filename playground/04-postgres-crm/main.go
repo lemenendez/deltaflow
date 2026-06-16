@@ -12,21 +12,22 @@ import (
 )
 
 const (
-	syncID          = "playground-04-crm-to-redis-opensearch"
+	syncID          = "playground-04-crm-to-redis-elasticsearch"
 	userProjection  = "CRMUserView"
 	custProjection  = "CRMCustomerView"
 	orderProjection = "CRMOrderFanout"
 )
 
 var (
-	seed          = uint64(4004)
-	userCount     = 8
-	customerCount = 18
-	orderCount    = 22
-	mutationCount = 64
-	writerCount   = 4
-	workerCount   = 2
-	maxAttempts   = 3
+	seed                  = uint64(4004)
+	userCount             = 8
+	customerCount         = 18
+	orderCount            = 22
+	mutationCount         = 64
+	writerCount           = 4
+	workerCount           = 2
+	maxAttempts           = 3
+	elasticsearchEndpoint = ""
 )
 
 var baseActorNames = []string{
@@ -37,7 +38,7 @@ var baseActorNames = []string{
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	if err := loadConfig(); err != nil {
@@ -86,6 +87,7 @@ func loadConfig() error {
 	if maxAttempts, err = playpg.EnvInt("MAX_ATTEMPTS", maxAttempts); err != nil {
 		return err
 	}
+	elasticsearchEndpoint = os.Getenv("DELTAFLOW_ES_ENDPOINT")
 	return nil
 }
 

@@ -17,12 +17,13 @@ const (
 )
 
 var (
-	seed          = uint64(3003)
-	productCount  = 14
-	mutationCount = 56
-	writerCount   = 4
-	workerCount   = 2
-	maxAttempts   = 3
+	seed                  = uint64(3003)
+	productCount          = 14
+	mutationCount         = 56
+	writerCount           = 4
+	workerCount           = 2
+	maxAttempts           = 3
+	elasticsearchEndpoint = ""
 )
 
 var baseActorNames = []string{
@@ -33,7 +34,7 @@ var baseActorNames = []string{
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	if err := loadConfig(); err != nil {
@@ -76,6 +77,7 @@ func loadConfig() error {
 	if maxAttempts, err = playpg.EnvInt("MAX_ATTEMPTS", maxAttempts); err != nil {
 		return err
 	}
+	elasticsearchEndpoint = os.Getenv("DELTAFLOW_ES_ENDPOINT")
 	return nil
 }
 

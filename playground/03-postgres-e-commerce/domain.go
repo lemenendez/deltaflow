@@ -54,6 +54,11 @@ type catalogStore struct {
 	db *sql.DB
 }
 
+type searchTarget interface {
+	deltaflow.ProjectionApplier
+	snapshot(ctx context.Context) (map[string][]byte, int, int, int, error)
+}
+
 func newCatalogStore(db *sql.DB) *catalogStore {
 	return &catalogStore{db: db}
 }
@@ -307,7 +312,11 @@ func (i *searchIndexSimulator) apply(_ context.Context, op deltaflow.ProjectionO
 	}
 }
 
-func (i *searchIndexSimulator) snapshot() (map[string][]byte, int, int, int) {
+func (i *searchIndexSimulator) Apply(ctx context.Context, op deltaflow.ProjectionOperation) error {
+	return i.apply(ctx, op)
+}
+
+func (i *searchIndexSimulator) snapshot(_ context.Context) (map[string][]byte, int, int, int, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -315,7 +324,7 @@ func (i *searchIndexSimulator) snapshot() (map[string][]byte, int, int, int) {
 	for key, value := range i.docs {
 		docs[key] = append([]byte(nil), value...)
 	}
-	return docs, i.upserts, i.deletes, i.failures
+	return docs, i.upserts, i.deletes, i.failures, nil
 }
 
 type countingProjector struct {

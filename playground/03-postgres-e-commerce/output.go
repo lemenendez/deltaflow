@@ -20,7 +20,11 @@ func printReport(result demoResult) {
 	fmt.Printf("- %d application-side actors updated durable Postgres product rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
 	fmt.Printf("- %d DeltaFlow workers concurrently dispatched, claimed, projected, and applied those jobs from Postgres.\n", workerCount)
 	fmt.Println("- Projector reads the latest product row and builds ProductSearchDocument.")
-	fmt.Println("- Applier is a simulated Elasticsearch adapter; no real Elasticsearch connector is used yet.")
+	if elasticsearchEndpoint == "" {
+		fmt.Println("- Applier is the local Elasticsearch simulator because DELTAFLOW_ES_ENDPOINT is not set.")
+	} else {
+		fmt.Printf("- Applier writes ProductSearchDocument operations to Elasticsearch at %s.\n", elasticsearchEndpoint)
+	}
 	fmt.Println()
 
 	fmt.Println("Workload")
@@ -55,10 +59,14 @@ func printReport(result demoResult) {
 	fmt.Printf("- Worker and lease log: %s.\n", result.WorkerLogPath)
 	fmt.Println()
 
-	fmt.Println("Simulated Elasticsearch result")
+	if elasticsearchEndpoint == "" {
+		fmt.Println("Simulated Elasticsearch result")
+	} else {
+		fmt.Println("Elasticsearch result")
+	}
 	fmt.Printf("- Upserts: %d, deletes: %d, target failures observed: %d.\n", result.TargetUpserts, result.TargetDeletes, result.TargetFailures)
 	fmt.Printf("- Indexed product docs: %d. Digest: %s.\n", len(result.Docs), result.Digest)
-	fmt.Println("- Note: only products touched by successful deltas appear in the simulated index.")
+	fmt.Println("- Note: only products touched by successful deltas appear in the index.")
 	if key, sample, ok := playpg.FirstSample(result.Docs); ok {
 		fmt.Printf("- Sample doc %s: %s\n", key, sample)
 	}
