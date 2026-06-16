@@ -65,6 +65,24 @@ func TestCloseResponseUsesBodyWhenPresent(t *testing.T) {
 	}
 }
 
+func TestCloseResponseDrainsErrorBody(t *testing.T) {
+	body := &trackingReadCloser{reader: strings.NewReader(strings.Repeat("x", 5000))}
+	err := closeResponse(&http.Response{
+		StatusCode: http.StatusBadRequest,
+		Status:     "400 Bad Request",
+		Body:       body,
+	})
+	if err == nil {
+		t.Fatal("err = nil, want error")
+	}
+	if !body.readEOF {
+		t.Fatal("error response body was not drained")
+	}
+	if !body.closed {
+		t.Fatal("error response body was not closed")
+	}
+}
+
 func TestElasticsearchTargetSnapshotDrainsErrorBody(t *testing.T) {
 	body := &trackingReadCloser{reader: strings.NewReader(strings.Repeat("x", 5000))}
 	target := &elasticsearchTarget{
