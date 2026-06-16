@@ -143,7 +143,7 @@ func (t *elasticsearchCRMTarget) Apply(ctx context.Context, op deltaflow.Project
 			delete(t.failOnce, queueKey)
 			t.failures++
 			t.mu.Unlock()
-			return fmt.Errorf("redis temporary timeout for %s", queueKey)
+			return fmt.Errorf("elasticsearch temporary timeout for %s", queueKey)
 		}
 	}
 	t.mu.Unlock()

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
+	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 func TestNewElasticsearchCRMTargetUsesTimeoutClient(t *testing.T) {
@@ -15,6 +19,26 @@ func TestNewElasticsearchCRMTargetUsesTimeoutClient(t *testing.T) {
 	}
 	if target.client.Timeout != 10*time.Second {
 		t.Fatalf("Timeout = %s, want 10s", target.client.Timeout)
+	}
+}
+
+func TestElasticsearchCRMTargetRetryErrorNamesElasticsearch(t *testing.T) {
+	target, err := newElasticsearchCRMTarget(
+		"http://localhost:9200",
+		"crm",
+		map[string]bool{"CRMCustomerView/cus-001": true},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = target.Apply(context.Background(), customerUpsertOperation(t, "cus-001"))
+	if err == nil {
+		t.Fatal("err = nil, want retry error")
+	}
+	if !strings.Contains(err.Error(), "elasticsearch temporary timeout") {
+		t.Fatalf("error = %q, want Elasticsearch retry message", err.Error())
 	}
 }
 
@@ -81,4 +105,17 @@ func (b *trackingReadCloser) Read(p []byte) (int, error) {
 func (b *trackingReadCloser) Close() error {
 	b.closed = true
 	return nil
+}
+
+func customerUpsertOperation(t *testing.T, id string) deltaflow.ProjectionOperation {
+	t.Helper()
+	key := playpg.StringKey("id", id)
+	return deltaflow.ProjectionOperation{
+		Type:     deltaflow.ProjectionOpUpsert,
+		Identity: deltaflow.ProjectionIdentity{Type: custProjection, Key: key},
+		Projection: &deltaflow.Projection{
+			Payload:   []byte(`{"customer":{"id":"cus-001"}}`),
+			MediaType: "application/json",
+		},
+	}
 }
