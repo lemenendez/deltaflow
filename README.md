@@ -34,6 +34,12 @@ The concrete Elasticsearch applier lives in `pkg/connectors/elasticsearch` and
 maps `ProjectionOpUpsert`/`ProjectionOpDelete` to idempotent Elasticsearch
 document writes.
 
+The Elasticsearch playgrounds use that public applier directly. Their
+`elasticsearch_target.go` files are demo glue around the applier: index
+reset/seed, failure simulation, counters, snapshots, and local fallback
+behavior. Application projectors and target-specific document shape remain
+custom code owned by the application.
+
 ## CLI
 
 The v0.6 CLI validates one minimal YAML shape and applies the embedded

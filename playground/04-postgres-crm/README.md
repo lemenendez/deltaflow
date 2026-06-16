@@ -18,6 +18,20 @@ The CRM source and DeltaFlow stores are durable Postgres tables. The docker comp
 
 The REST/API consistency model is represented by the writer stage: every application-side CRM mutation and its Delta are committed in the same Postgres transaction through `DeltaStore.EnqueueInTx`. Elasticsearch is updated asynchronously by DeltaFlow workers after the transaction commits.
 
+## Public API vs Playground Glue
+
+This playground uses the public Elasticsearch applier from `pkg/connectors/elasticsearch` for the real search fanout writes. `elasticsearch_target.go` wraps that applier only for demo concerns:
+
+- create/reset the demo Elasticsearch index
+- seed a stale ghost customer document
+- map projection keys to CRM document IDs
+- keep Redis-style read views and order publication as local simulations
+- inject retry/dead-letter failures
+- count applied operations and snapshot indexed documents for the report
+- fall back to the all-simulated target when `DELTAFLOW_ES_ENDPOINT` is unset
+
+The application-owned work is still explicit: `domain.go` defines the source model and projector, `engine.go` wires `SyncWorker`, and the writer path enqueues Deltas transactionally with source writes.
+
 ## Run
 
 From this folder:

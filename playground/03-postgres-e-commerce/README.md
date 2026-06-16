@@ -17,6 +17,19 @@ The product source and DeltaFlow stores are durable Postgres tables. The docker 
 
 The REST/API consistency model is represented by the writer stage: every application-side product mutation and its Delta are committed in the same Postgres transaction through `DeltaStore.EnqueueInTx`. Elasticsearch is updated asynchronously by DeltaFlow workers after the transaction commits.
 
+## Public API vs Playground Glue
+
+This playground uses the public Elasticsearch applier from `pkg/connectors/elasticsearch` for the real target writes. `elasticsearch_target.go` wraps that applier only for demo concerns:
+
+- create/reset the demo Elasticsearch index
+- seed a stale ghost document
+- map projection keys to product document IDs
+- inject retry/dead-letter failures
+- count applied operations and snapshot indexed documents for the report
+- fall back to the in-memory simulator when `DELTAFLOW_ES_ENDPOINT` is unset
+
+The application-owned work is still explicit: `domain.go` defines the source model and projector, `engine.go` wires `SyncWorker`, and the writer path enqueues Deltas transactionally with source writes.
+
 ## Run
 
 From this folder:
