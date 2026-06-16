@@ -7,10 +7,45 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
+
+func TestNewApplierUsesTimeoutDefaultClient(t *testing.T) {
+	applier, err := NewApplier(ApplierConfig{
+		Endpoint: "http://localhost:9200",
+		Index:    "products",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client, ok := applier.client.(*http.Client)
+	if !ok {
+		t.Fatalf("client = %T, want *http.Client", applier.client)
+	}
+	if client.Timeout != 10*time.Second {
+		t.Fatalf("Timeout = %s, want 10s", client.Timeout)
+	}
+}
+
+func TestNewApplierUsesConfiguredClient(t *testing.T) {
+	configured := &http.Client{Timeout: 250 * time.Millisecond}
+	applier, err := NewApplier(ApplierConfig{
+		Client:   configured,
+		Endpoint: "http://localhost:9200",
+		Index:    "products",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applier.client != configured {
+		t.Fatal("applier did not keep configured client")
+	}
+}
 
 func TestApplierUpsertMapsProjectionToIndexRequest(t *testing.T) {
 	var gotMethod, gotPath, gotBody, gotContentType string
@@ -63,6 +98,38 @@ func TestApplierUpsertMapsProjectionToIndexRequest(t *testing.T) {
 	}
 	if gotBody != `{"product_id":"sku-001"}` {
 		t.Fatalf("body = %s", gotBody)
+	}
+}
+
+func TestApplierDrainsSuccessfulResponseBody(t *testing.T) {
+	body := &trackingReadCloser{reader: strings.NewReader(`{"result":"updated"}`)}
+	applier, err := NewApplier(ApplierConfig{
+		Client: staticResponseClient{response: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       body,
+		}},
+		Endpoint: "http://localhost:9200",
+		Index:    "products",
+		DocumentID: func(deltaflow.ProjectionIdentity) (string, error) {
+			return "sku-001", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = applier.Apply(context.Background(), deltaflow.ProjectionOperation{
+		Type:     deltaflow.ProjectionOpDelete,
+		Identity: identity(t, "sku-001"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !body.readEOF {
+		t.Fatal("successful response body was not drained")
+	}
+	if !body.closed {
+		t.Fatal("successful response body was not closed")
 	}
 }
 
@@ -200,4 +267,32 @@ func identity(t *testing.T, productID string) deltaflow.ProjectionIdentity {
 		Type: "Product",
 		Key:  deltaflow.ProjectionKey{"product_id": raw},
 	}
+}
+
+type staticResponseClient struct {
+	response *http.Response
+	err      error
+}
+
+func (c staticResponseClient) Do(*http.Request) (*http.Response, error) {
+	return c.response, c.err
+}
+
+type trackingReadCloser struct {
+	reader  *strings.Reader
+	readEOF bool
+	closed  bool
+}
+
+func (b *trackingReadCloser) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	if err == io.EOF {
+		b.readEOF = true
+	}
+	return n, err
+}
+
+func (b *trackingReadCloser) Close() error {
+	b.closed = true
+	return nil
 }

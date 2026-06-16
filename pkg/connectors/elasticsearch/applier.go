@@ -12,9 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
+
+const defaultHTTPClientTimeout = 10 * time.Second
 
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -54,7 +57,7 @@ func (e *ResponseError) Error() string {
 
 func NewApplier(cfg ApplierConfig) (*Applier, error) {
 	if cfg.Client == nil {
-		cfg.Client = http.DefaultClient
+		cfg.Client = &http.Client{Timeout: defaultHTTPClientTimeout}
 	}
 	if cfg.Endpoint == "" {
 		return nil, errors.New("elasticsearch applier: endpoint is required")
@@ -133,6 +136,7 @@ func (a *Applier) do(req *http.Request, opType deltaflow.ProjectionOperationType
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

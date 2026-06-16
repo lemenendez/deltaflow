@@ -238,7 +238,11 @@ func closeResponse(resp *http.Response) error {
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return errors.New(strings.TrimSpace(string(body)))
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		message = resp.Status
+	}
+	return errors.New(message)
 }
 
 func copyBoolMap(in map[string]bool) map[string]bool {

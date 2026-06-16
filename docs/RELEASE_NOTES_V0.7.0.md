@@ -22,16 +22,15 @@ The new applier is constructed explicitly by application code:
 
 ```go
 applier, err := elasticsearch.NewApplier(elasticsearch.ApplierConfig{
-    Client:   http.DefaultClient,
     Endpoint: "http://localhost:9200",
     Index:    "products",
 })
 ```
 
-Applications can provide a custom `DocumentID` function when projection keys
-should map to readable target IDs, for example a product SKU or CRM entity ID.
-If no function is provided, DeltaFlow uses a stable hash derived from projection
-type and projection key.
+Applications can provide a custom HTTP `Client` and `DocumentID` function when
+projection keys should map to readable target IDs, for example a product SKU or
+CRM entity ID. If no document ID function is provided, DeltaFlow uses a stable
+hash derived from projection type and projection key.
 
 ## Playground Updates
 
