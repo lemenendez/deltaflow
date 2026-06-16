@@ -18,6 +18,24 @@ func TestNewElasticsearchCRMTargetUsesTimeoutClient(t *testing.T) {
 	}
 }
 
+func TestCloseResponseDrainsSuccessfulBody(t *testing.T) {
+	body := &trackingReadCloser{reader: strings.NewReader(`{"acknowledged":true}`)}
+	err := closeResponse(&http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Body:       body,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !body.readEOF {
+		t.Fatal("successful response body was not drained")
+	}
+	if !body.closed {
+		t.Fatal("successful response body was not closed")
+	}
+}
+
 func TestCloseResponseUsesStatusWhenBodyIsEmpty(t *testing.T) {
 	err := closeResponse(&http.Response{
 		StatusCode: http.StatusInternalServerError,
@@ -44,4 +62,23 @@ func TestCloseResponseUsesBodyWhenPresent(t *testing.T) {
 	if err.Error() != "mapping rejected" {
 		t.Fatalf("error = %q, want body text", err.Error())
 	}
+}
+
+type trackingReadCloser struct {
+	reader  *strings.Reader
+	readEOF bool
+	closed  bool
+}
+
+func (b *trackingReadCloser) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	if err == io.EOF {
+		b.readEOF = true
+	}
+	return n, err
+}
+
+func (b *trackingReadCloser) Close() error {
+	b.closed = true
+	return nil
 }

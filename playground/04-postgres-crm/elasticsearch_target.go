@@ -237,6 +237,7 @@ func (t *elasticsearchCRMTarget) documentURL(documentID string) string {
 func closeResponse(resp *http.Response) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
