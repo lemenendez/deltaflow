@@ -196,6 +196,7 @@ func (t *elasticsearchCRMTarget) snapshot(ctx context.Context) (map[string][]byt
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, nil, nil, nil, 0, 0, 0, fmt.Errorf("elasticsearch snapshot failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
@@ -241,6 +242,7 @@ func closeResponse(resp *http.Response) error {
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	_, _ = io.Copy(io.Discard, resp.Body)
 	message := strings.TrimSpace(string(body))
 	if message == "" {
 		message = resp.Status

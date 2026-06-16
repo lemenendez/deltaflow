@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -62,6 +63,40 @@ func TestCloseResponseUsesBodyWhenPresent(t *testing.T) {
 	if err.Error() != "mapping rejected" {
 		t.Fatalf("error = %q, want body text", err.Error())
 	}
+}
+
+func TestElasticsearchTargetSnapshotDrainsErrorBody(t *testing.T) {
+	body := &trackingReadCloser{reader: strings.NewReader(strings.Repeat("x", 5000))}
+	target := &elasticsearchTarget{
+		client: &http.Client{
+			Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusInternalServerError,
+					Status:     "500 Internal Server Error",
+					Body:       body,
+				}, nil
+			}),
+		},
+		endpoint: "http://localhost:9200",
+		index:    "products",
+	}
+
+	_, _, _, _, err := target.snapshot(context.Background())
+	if err == nil {
+		t.Fatal("err = nil, want error")
+	}
+	if !body.readEOF {
+		t.Fatal("error response body was not drained")
+	}
+	if !body.closed {
+		t.Fatal("error response body was not closed")
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 type trackingReadCloser struct {
