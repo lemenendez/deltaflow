@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -148,7 +149,7 @@ func customerUpsertOperation(t *testing.T, id string) deltaflow.ProjectionOperat
 		Type:     deltaflow.ProjectionOpUpsert,
 		Identity: deltaflow.ProjectionIdentity{Type: custProjection, Key: key},
 		Projection: &deltaflow.Projection{
-			Payload:   []byte(`{"customer":{"id":"cus-001"}}`),
+			Payload:   []byte(fmt.Sprintf(`{"customer":{"id":%q}}`, id)),
 			MediaType: "application/json",
 		},
 	}
