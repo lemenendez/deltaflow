@@ -140,6 +140,7 @@ func (a *Applier) do(req *http.Request, opType deltaflow.ProjectionOperationType
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	_, _ = io.Copy(io.Discard, resp.Body)
 	if opType == deltaflow.ProjectionOpDelete && resp.StatusCode == http.StatusNotFound && isMissingDocumentDelete(body) {
 		return nil
 	}
