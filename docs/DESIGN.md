@@ -1,10 +1,10 @@
 # DeltaFlow Design
 
-> Status: v0.5 latest-state MVP design.
+> Status: v0.7.0 latest-state design with Elasticsearch applier.
 >
 > Goal: keep DeltaFlow small, explicit, and clear.
 >
-> DeltaFlow v0.5 exposes the latest-state worker contract through public Go APIs,
+> DeltaFlow v0.7.0 exposes the latest-state worker contract through public Go APIs,
 > with in-memory and durable Postgres Delta and SyncJob stores.
 > A Sync is not a graph, not a connector registry, not a multi-target fan-out
 > system, and not an Apache Beam pipeline.
@@ -38,9 +38,9 @@ Delta Ghost handling
 
 ---
 
-## 2. Non-goals for v0.5
+## 2. Non-goals for current scope (v0.7.0)
 
-DeltaFlow v0.5 does not include:
+DeltaFlow v0.7.0 does not include:
 
 ```text
 CDC as the primary abstraction
