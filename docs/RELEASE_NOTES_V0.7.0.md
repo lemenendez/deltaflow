@@ -25,6 +25,9 @@ applier, err := elasticsearch.NewApplier(elasticsearch.ApplierConfig{
     Endpoint: "http://localhost:9200",
     Index:    "products",
 })
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 Applications can provide a custom HTTP `Client` and `DocumentID` function when
