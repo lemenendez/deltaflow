@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
@@ -38,7 +37,6 @@ type PipelineRuntime struct {
 }
 
 type Registry struct {
-	mu         sync.RWMutex
 	projectors map[string]ProjectorFactory
 	appliers   map[string]ApplierFactory
 }
@@ -50,34 +48,38 @@ func NewRegistry() *Registry {
 	}
 }
 
-func (r *Registry) RegisterProjector(name string, factory ProjectorFactory) error {
+func (r *Registry) RegisterProjector(name string, factory ProjectorFactory) {
+	if r == nil {
+		panic("runtime registry is required")
+	}
 	if factory == nil {
-		return errors.New("runtime projector factory is required")
+		panic("runtime projector factory is required")
 	}
 	key := normalizeKey(name)
 	if key == "" {
-		return errors.New("runtime projector name is required")
+		panic("runtime projector name is required")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if _, exists := r.projectors[key]; exists {
+		panic(fmt.Sprintf("runtime projector already registered: %q", name))
+	}
 	r.projectors[key] = factory
-	return nil
 }
 
-func (r *Registry) RegisterApplier(targetType string, factory ApplierFactory) error {
+func (r *Registry) RegisterApplier(targetType string, factory ApplierFactory) {
+	if r == nil {
+		panic("runtime registry is required")
+	}
 	if factory == nil {
-		return errors.New("runtime applier factory is required")
+		panic("runtime applier factory is required")
 	}
 	key := normalizeKey(targetType)
 	if key == "" {
-		return errors.New("runtime applier target type is required")
+		panic("runtime applier target type is required")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if _, exists := r.appliers[key]; exists {
+		panic(fmt.Sprintf("runtime applier already registered: %q", targetType))
+	}
 	r.appliers[key] = factory
-	return nil
 }
 
 func (r *Registry) ResolvePipeline(ctx context.Context, spec PipelineSpec) (PipelineRuntime, error) {
@@ -119,8 +121,6 @@ func (r *Registry) ResolvePipeline(ctx context.Context, spec PipelineSpec) (Pipe
 
 func (r *Registry) lookupProjector(name string) (ProjectorFactory, bool) {
 	key := normalizeKey(name)
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	factory, ok := r.projectors[key]
 	return factory, ok
 }
@@ -132,8 +132,6 @@ func (r *Registry) HasProjector(name string) bool {
 
 func (r *Registry) lookupApplier(targetType string) (ApplierFactory, bool) {
 	key := normalizeKey(targetType)
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	factory, ok := r.appliers[key]
 	return factory, ok
 }

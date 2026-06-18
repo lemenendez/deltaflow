@@ -56,15 +56,9 @@ Config loading expands environment variables with Go's `os.ExpandEnv`, so both
 parsing, so quoted YAML strings are expanded too; avoid literal `$NAME`
 sequences in config values such as DSNs.
 
-`run` currently executes one worker cycle per configured pipeline and requires
-explicit runtime registrations from host binaries for application projectors
-and appliers. DeltaFlow does not infer application projector wiring from YAML.
-
-The repository includes one concrete host-binary example at
-[cmd/deltaflow-host/main.go](cmd/deltaflow-host/main.go). It registers a real
-Postgres-backed projector and the concrete Elasticsearch applier, then invokes
-the shared CLI runtime through `NewRootCommandWithRegistry(...)`. The sample
-config for that host lives at [cmd/deltaflow-host/deltaflow.yaml](cmd/deltaflow-host/deltaflow.yaml).
+`run` currently executes one worker cycle per configured pipeline. Runtime
+registrations are explicit and map-based. DeltaFlow does not infer application
+projector wiring from YAML.
 
 ## Development Hooks
 

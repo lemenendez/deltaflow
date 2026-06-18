@@ -28,16 +28,14 @@ func TestRunOnceBuildsAndExecutesPipelines(t *testing.T) {
 	}
 
 	registry := NewRegistry()
-	if err := registry.RegisterProjector("contact-projector", func(context.Context, PipelineSpec) (deltaflow.Projector, error) {
+	registry.RegisterProjector("contact-projector", func(context.Context, PipelineSpec) (deltaflow.Projector, error) {
 		return deltaflow.ProjectorFunc(func(_ context.Context, id deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
 			return deltaflow.Projection{Identity: id, Payload: []byte(`{"ok":true}`), MediaType: "application/json"}, nil
 		}), nil
-	}); err != nil {
-		t.Fatalf("RegisterProjector error: %v", err)
-	}
+	})
 
 	applied := 0
-	if err := registry.RegisterApplier("elasticsearch", func(context.Context, PipelineSpec) (deltaflow.ProjectionApplier, error) {
+	registry.RegisterApplier("elasticsearch", func(context.Context, PipelineSpec) (deltaflow.ProjectionApplier, error) {
 		return deltaflow.ProjectionApplierFunc(func(_ context.Context, op deltaflow.ProjectionOperation) error {
 			applied++
 			if op.Type != deltaflow.ProjectionOpUpsert {
@@ -45,9 +43,7 @@ func TestRunOnceBuildsAndExecutesPipelines(t *testing.T) {
 			}
 			return nil
 		}), nil
-	}); err != nil {
-		t.Fatalf("RegisterApplier error: %v", err)
-	}
+	})
 
 	cfg := &config.Config{
 		Store: config.StoreConfig{Type: "postgres", DSN: "postgres://unused"},

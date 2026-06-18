@@ -56,7 +56,7 @@ func Register(registry *runtimepkg.Registry, cfg RegisterConfig) error {
 	var projectorOnce sync.Once
 	var projectorDB *sql.DB
 	var projectorInitErr error
-	if err := registry.RegisterProjector(projectorName, func(ctx context.Context, spec runtimepkg.PipelineSpec) (deltaflow.Projector, error) {
+	registry.RegisterProjector(projectorName, func(ctx context.Context, spec runtimepkg.PipelineSpec) (deltaflow.Projector, error) {
 		projectorOnce.Do(func() {
 			if spec.StoreType != "postgres" {
 				projectorInitErr = fmt.Errorf("contact projector requires postgres store, got %q", spec.StoreType)
@@ -85,11 +85,9 @@ func Register(registry *runtimepkg.Registry, cfg RegisterConfig) error {
 			return nil, projectorInitErr
 		}
 		return NewContactProjector(projectorDB, sourceTable)
-	}); err != nil {
-		return err
-	}
+	})
 
-	if err := registry.RegisterApplier(targetType, func(_ context.Context, spec runtimepkg.PipelineSpec) (deltaflow.ProjectionApplier, error) {
+	registry.RegisterApplier(targetType, func(_ context.Context, spec runtimepkg.PipelineSpec) (deltaflow.ProjectionApplier, error) {
 		endpoint := os.Getenv(esEndpointEnv)
 		if endpoint == "" {
 			endpoint = "http://localhost:9200"
@@ -103,9 +101,7 @@ func Register(registry *runtimepkg.Registry, cfg RegisterConfig) error {
 			Index:    spec.TargetIndex,
 			Refresh:  os.Getenv(esRefreshEnv),
 		})
-	}); err != nil {
-		return err
-	}
+	})
 
 	return nil
 }

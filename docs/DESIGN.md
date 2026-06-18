@@ -16,6 +16,17 @@
 
 DeltaFlow helps an application keep one derived system synchronized with the latest state of a business Projection.
 
+### 1.1 Runtime registration
+
+DeltaFlow keeps runtime wiring explicit and simple:
+
+- registrations are a map from exact names to factories
+- registration happens before `run`
+- duplicate names panic during startup
+
+The CLI then resolves configured names (for example projector name and target
+type) against that registry with no reflection and no name inference.
+
 This version answers one question:
 
 ```text

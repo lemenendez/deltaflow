@@ -99,9 +99,9 @@ pipelines:
 			wantErrText: "missing.yaml",
 		},
 		{
-			name:        "run command fails early without runtime registrations",
+			name:        "run command proceeds past registration checks",
 			args:        []string{"run", "--config", validConfig},
-			wantErrText: "runtime projector not registered",
+			wantErrText: "connect postgres",
 		},
 	}
 

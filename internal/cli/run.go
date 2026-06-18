@@ -27,7 +27,7 @@ func newRunCommand(opts *options) *cobra.Command {
 				return err
 			}
 			if opts.runtimeRegistry == nil {
-				return fmt.Errorf("runtime registry is required; use NewRootCommandWithRegistry in host binaries")
+				return fmt.Errorf("runtime registry is required")
 			}
 			for _, p := range cfg.Pipelines {
 				if !opts.runtimeRegistry.HasProjector(p.Projector.Name) {

@@ -7,11 +7,14 @@ configuration-driven `deltaflow run` path.
 This release intentionally favors explicit host wiring over magic runtime
 inference, aligning with the roadmap guardrail.
 
+Runtime registration is intentionally simple: exact-name map lookups with
+explicit startup registration and no reflection-based discovery.
+
 ## Highlights
 
 - Added `deltaflow run` command to execute one worker cycle per configured pipeline.
 - Added `pkg/runtime` registry with explicit projector and applier factory registration.
-- Added a concrete host-binary example under `cmd/deltaflow-host` that registers a real projector/applier pair.
+- Kept runtime registration explicit with exact-name map wiring.
 - Added fast-fail runtime wiring checks before DB connection:
   - missing projector registration
   - missing applier registration
@@ -21,7 +24,7 @@ inference, aligning with the roadmap guardrail.
 
 ## Runtime Model
 
-`run` expects host binaries to provide registrations:
+`run` expects startup registration to provide factories:
 
 - `pipelines[].projector.name` -> projector factory
 - `pipelines[].target.type` -> applier factory
@@ -37,5 +40,4 @@ construct application-specific projectors from YAML alone.
 
 - Long-running worker process mode for `deltaflow run` (current behavior is one cycle per pipeline).
 - End-to-end integration test for CLI `run` with containerized Postgres + Elasticsearch.
-- Runtime embedding examples in docs for host binary setup.
 - Worker batching and throughput improvements remain v0.9.0.
