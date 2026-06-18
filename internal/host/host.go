@@ -1,4 +1,4 @@
-package playpg
+package host
 
 import (
 	"context"
@@ -418,7 +418,6 @@ func NewDelta(syncID deltaflow.SyncID, projectionType deltaflow.ProjectionType, 
 		ProjectionKey:  key,
 		State:          deltaflow.DeltaPending,
 		OccurredAt:     occurredAt,
-		CreatedAt:      occurredAt,
 		Metadata:       metadata,
 	}
 }

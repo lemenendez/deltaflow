@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/brianvoe/gofakeit/v7"
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 type user struct {
@@ -226,7 +226,7 @@ WHERE %s = $3`, table, setSQL, idColumn), value, m.At, m.EntityID)
 }
 
 func (s *crmStore) project(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
-	id, err := playpg.StringFromKey(identity.Key, "id")
+	id, err := hostpkg.StringFromKey(identity.Key, "id")
 	if err != nil {
 		return deltaflow.Projection{}, err
 	}
@@ -237,7 +237,7 @@ func (s *crmStore) project(ctx context.Context, identity deltaflow.ProjectionIde
 		if err != nil || !ok {
 			return projectionOrNotFound(err, ok)
 		}
-		return playpg.JSONProjection(identity, map[string]any{
+		return hostpkg.JSONProjection(identity, map[string]any{
 			"cache_key":  "user:" + u.ID,
 			"user":       u,
 			"search_doc": map[string]any{"id": u.ID, "name": u.Name, "roles": u.Roles},
@@ -247,7 +247,7 @@ func (s *crmStore) project(ctx context.Context, identity deltaflow.ProjectionIde
 		if err != nil || !ok {
 			return projectionOrNotFound(err, ok)
 		}
-		return playpg.JSONProjection(identity, map[string]any{
+		return hostpkg.JSONProjection(identity, map[string]any{
 			"cache_key":  "customer:" + c.ID,
 			"customer":   c,
 			"search_doc": map[string]any{"id": c.ID, "name": c.Name, "email": c.Email, "phone": c.Phone, "vip": c.VIP},
@@ -257,7 +257,7 @@ func (s *crmStore) project(ctx context.Context, identity deltaflow.ProjectionIde
 		if err != nil || !ok {
 			return projectionOrNotFound(err, ok)
 		}
-		return playpg.JSONProjection(identity, map[string]any{
+		return hostpkg.JSONProjection(identity, map[string]any{
 			"redis_stream":        "orders:events",
 			"elasticsearch_index": "orders:index",
 			"order":               o,
@@ -347,7 +347,7 @@ func newCRMTargetSimulator(failOnce map[string]bool, deadLetters map[string]bool
 }
 
 func (t *crmTargetSimulator) apply(_ context.Context, op deltaflow.ProjectionOperation) error {
-	id, err := playpg.StringFromKey(op.Identity.Key, "id")
+	id, err := hostpkg.StringFromKey(op.Identity.Key, "id")
 	if err != nil {
 		return err
 	}

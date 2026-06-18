@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/brianvoe/gofakeit/v7"
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 type mutation struct {
@@ -38,7 +38,7 @@ type writerAck struct {
 	err   error
 }
 
-func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error) {
+func buildScenario(ctx context.Context, stores *hostpkg.Stores) (*scenario, error) {
 	faker := gofakeit.New(seed)
 	source := newCRMStore(stores.DB)
 	if err := source.ensureSchema(ctx); err != nil {
@@ -197,7 +197,7 @@ func buildScenario(ctx context.Context, stores *playpg.Stores) (*scenario, error
 	return &scenario{source: source, target: target, events: events}, nil
 }
 
-func runWriters(ctx context.Context, stores *playpg.Stores, source *crmStore, events []mutation) (writerRunResult, error) {
+func runWriters(ctx context.Context, stores *hostpkg.Stores, source *crmStore, events []mutation) (writerRunResult, error) {
 	result := writerRunResult{Planned: len(events)}
 	actorEvents := make([][]mutation, writerCount)
 	for _, event := range events {
@@ -263,7 +263,7 @@ func runWriters(ctx context.Context, stores *playpg.Stores, source *crmStore, ev
 	return result, nil
 }
 
-func applyAndEnqueue(ctx context.Context, stores *playpg.Stores, source *crmStore, event mutation) error {
+func applyAndEnqueue(ctx context.Context, stores *hostpkg.Stores, source *crmStore, event mutation) error {
 	tx, err := stores.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -280,10 +280,10 @@ func applyAndEnqueue(ctx context.Context, stores *playpg.Stores, source *crmStor
 	if event.Entity == "order" && event.Kind == "status" && event.Value == "accepted" {
 		origin = deltaflow.OriginOperationInserted
 	}
-	_, err = stores.DeltaStore.EnqueueInTx(ctx, tx, playpg.NewDelta(
+	_, err = stores.DeltaStore.EnqueueInTx(ctx, tx, hostpkg.NewDelta(
 		syncID,
 		event.Projection,
-		playpg.StringKey("id", event.EntityID),
+		hostpkg.StringKey("id", event.EntityID),
 		origin,
 		event.At,
 		map[string]any{

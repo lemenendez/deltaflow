@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 )
 
 func printReport(result demoResult) {
@@ -47,14 +47,14 @@ func printReport(result demoResult) {
 
 	fmt.Println("Timing")
 	fmt.Printf("- Setup: %s. Enqueue: %s. Worker drain: %s. Total: %s.\n",
-		playpg.FormatDuration(result.Timings.Setup),
-		playpg.FormatDuration(result.Timings.Enqueue),
-		playpg.FormatDuration(result.Timings.Drain),
-		playpg.FormatDuration(result.Timings.Total),
+		hostpkg.FormatDuration(result.Timings.Setup),
+		hostpkg.FormatDuration(result.Timings.Enqueue),
+		hostpkg.FormatDuration(result.Timings.Drain),
+		hostpkg.FormatDuration(result.Timings.Total),
 	)
 	fmt.Printf("- Enqueue throughput: %.1f deltas/sec. Drain throughput: %.1f terminal jobs/sec.\n",
-		playpg.PerSecond(result.Enqueued, result.Timings.Enqueue),
-		playpg.PerSecond(result.JobCounts.Synced+result.JobCounts.Dead, result.Timings.Drain),
+		hostpkg.PerSecond(result.Enqueued, result.Timings.Enqueue),
+		hostpkg.PerSecond(result.JobCounts.Synced+result.JobCounts.Dead, result.Timings.Drain),
 	)
 	fmt.Printf("- Worker and lease log: %s.\n", result.WorkerLogPath)
 	fmt.Println()
@@ -67,10 +67,10 @@ func printReport(result demoResult) {
 	fmt.Printf("- Upserts: %d, deletes: %d, target failures observed: %d.\n", result.TargetUpserts, result.TargetDeletes, result.TargetFailures)
 	fmt.Printf("- Redis views: %d. Search fanout events: %d. Redis order events: %d.\n", len(result.Views), len(result.SearchQueue), len(result.RedisOrderQueue))
 	if elasticsearchEndpoint != "" {
-		fmt.Printf("- Elasticsearch docs: %d. Search digest: %s.\n", len(result.SearchDocs), playpg.StableDigest(result.SearchDocs))
+		fmt.Printf("- Elasticsearch docs: %d. Search digest: %s.\n", len(result.SearchDocs), hostpkg.StableDigest(result.SearchDocs))
 	}
 	fmt.Printf("- Redis view digest: %s.\n", result.Digest)
-	if key, sample, ok := playpg.FirstSample(result.Views); ok {
+	if key, sample, ok := hostpkg.FirstSample(result.Views); ok {
 		fmt.Printf("- Sample view %s: %s\n", key, sample)
 	}
 	fmt.Printf("- Last search fanout events: %s.\n", queueTail(result.SearchQueue, 5))

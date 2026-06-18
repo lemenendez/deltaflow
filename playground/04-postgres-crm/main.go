@@ -8,7 +8,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 )
 
 const (
@@ -47,7 +47,7 @@ func main() {
 
 	dsn := os.Getenv("DELTAFLOW_PG_DSN")
 	if dsn == "" {
-		dsn = playpg.DefaultDSN()
+		dsn = hostpkg.DefaultDSN()
 	}
 
 	result, err := runDemo(ctx, dsn)
@@ -60,31 +60,31 @@ func main() {
 
 func loadConfig() error {
 	var err error
-	if seed, err = playpg.EnvUint64("SIM_SEED", seed); err != nil {
+	if seed, err = hostpkg.EnvUint64("SIM_SEED", seed); err != nil {
 		return err
 	}
-	if userCount, err = playpg.EnvInt("USER_COUNT", userCount); err != nil {
+	if userCount, err = hostpkg.EnvInt("USER_COUNT", userCount); err != nil {
 		return err
 	}
-	if customerCount, err = playpg.EnvInt("CUSTOMER_COUNT", customerCount); err != nil {
+	if customerCount, err = hostpkg.EnvInt("CUSTOMER_COUNT", customerCount); err != nil {
 		return err
 	}
-	if orderCount, err = playpg.EnvInt("ORDER_COUNT", orderCount); err != nil {
+	if orderCount, err = hostpkg.EnvInt("ORDER_COUNT", orderCount); err != nil {
 		return err
 	}
-	if mutationCount, err = playpg.EnvInt("MUTATION_COUNT", mutationCount); err != nil {
+	if mutationCount, err = hostpkg.EnvInt("MUTATION_COUNT", mutationCount); err != nil {
 		return err
 	}
-	if writerCount, err = playpg.EnvInt("WRITER_COUNT", writerCount); err != nil {
+	if writerCount, err = hostpkg.EnvInt("WRITER_COUNT", writerCount); err != nil {
 		return err
 	}
 	if writerCount < 4 {
 		return fmt.Errorf("WRITER_COUNT must be >= 4 for this scenario")
 	}
-	if workerCount, err = playpg.EnvInt("WORKER_COUNT", workerCount); err != nil {
+	if workerCount, err = hostpkg.EnvInt("WORKER_COUNT", workerCount); err != nil {
 		return err
 	}
-	if maxAttempts, err = playpg.EnvInt("MAX_ATTEMPTS", maxAttempts); err != nil {
+	if maxAttempts, err = hostpkg.EnvInt("MAX_ATTEMPTS", maxAttempts); err != nil {
 		return err
 	}
 	elasticsearchEndpoint = os.Getenv("DELTAFLOW_ES_ENDPOINT")

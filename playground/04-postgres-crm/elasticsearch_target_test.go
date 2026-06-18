@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 func TestNewElasticsearchCRMTargetUsesTimeoutClient(t *testing.T) {
@@ -162,7 +162,7 @@ func (b *trackingReadCloser) Close() error {
 
 func customerUpsertOperation(t *testing.T, id string) deltaflow.ProjectionOperation {
 	t.Helper()
-	key := playpg.StringKey("id", id)
+	key := hostpkg.StringKey("id", id)
 	return deltaflow.ProjectionOperation{
 		Type:     deltaflow.ProjectionOpUpsert,
 		Identity: deltaflow.ProjectionIdentity{Type: custProjection, Key: key},
