@@ -4,8 +4,8 @@ DeltaFlow v0.8.0 starts the CLI runtime wiring milestone with an explicit
 registry model for projector/applier construction and an initial
 configuration-driven `deltaflow run` path.
 
-This release intentionally favors explicit host wiring over magic runtime
-inference, aligning with the roadmap guardrail.
+This release intentionally favors explicit startup registration over magic
+runtime inference, aligning with the roadmap guardrail.
 
 Runtime registration is intentionally simple: exact-name map lookups with
 explicit startup registration and no reflection-based discovery.
@@ -15,6 +15,7 @@ explicit startup registration and no reflection-based discovery.
 - Added `deltaflow run` command to execute one worker cycle per configured pipeline.
 - Added `pkg/runtime` registry with explicit projector and applier factory registration.
 - Kept runtime registration explicit with exact-name map wiring.
+- Duplicate projector/applier registrations now fail fast during startup.
 - Added fast-fail runtime wiring checks before DB connection:
   - missing projector registration
   - missing applier registration

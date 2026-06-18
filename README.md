@@ -58,7 +58,8 @@ sequences in config values such as DSNs.
 
 `run` currently executes one worker cycle per configured pipeline. Runtime
 registrations are explicit and map-based. DeltaFlow does not infer application
-projector wiring from YAML.
+projector wiring from YAML. Registration is done during startup before `run`,
+and duplicate names fail fast.
 
 ## Development Hooks
 
