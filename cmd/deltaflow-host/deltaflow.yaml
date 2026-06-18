@@ -1,0 +1,23 @@
+store:
+  type: postgres
+  dsn: ${DELTAFLOW_STORE_DSN}
+
+workers:
+  concurrency: 1
+  lease_ttl: 30s
+  pull_size: 1
+  max_attempts: 5
+
+pipelines:
+  - name: contacts-search
+    sync_id: contacts-search
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts_search
+    applier:
+      mode: upsert

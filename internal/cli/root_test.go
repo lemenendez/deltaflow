@@ -72,7 +72,6 @@ pipelines:
     applier:
       mode: upsert
 `)
-
 	tests := []struct {
 		name        string
 		args        []string
@@ -98,6 +97,11 @@ pipelines:
 			name:        "missing config returns load error without cobra stderr",
 			args:        []string{"validate", "--config", filepath.Join(t.TempDir(), "missing.yaml")},
 			wantErrText: "missing.yaml",
+		},
+		{
+			name:        "run command fails early without runtime registrations",
+			args:        []string{"run", "--config", validConfig},
+			wantErrText: "runtime projector not registered",
 		},
 	}
 
@@ -134,7 +138,7 @@ pipelines:
 func TestRootCommandRegistersSubcommands(t *testing.T) {
 	cmd := NewRootCommand()
 
-	for _, name := range []string{"validate", "migrate"} {
+	for _, name := range []string{"validate", "migrate", "run"} {
 		if _, _, err := cmd.Find([]string{name}); err != nil {
 			t.Fatalf("Find(%q) error: %v", name, err)
 		}

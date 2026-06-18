@@ -42,12 +42,13 @@ custom code owned by the application.
 
 ## CLI
 
-The v0.6 CLI validates one minimal YAML shape and applies the embedded
-Postgres schema migrations:
+The CLI validates one minimal YAML shape, applies embedded Postgres schema
+migrations, and starts the v0.8 runtime wiring path with `run`:
 
 ```bash
 go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
+go run ./cmd/deltaflow run --config ./cmd/deltaflow/deltaflow.yaml
 ```
 
 Config loading expands environment variables with Go's `os.ExpandEnv`, so both
@@ -55,8 +56,15 @@ Config loading expands environment variables with Go's `os.ExpandEnv`, so both
 parsing, so quoted YAML strings are expanded too; avoid literal `$NAME`
 sequences in config values such as DSNs.
 
-`run` is intentionally deferred until DeltaFlow has an explicit runtime wiring
-model for application projectors and appliers.
+`run` currently executes one worker cycle per configured pipeline and requires
+explicit runtime registrations from host binaries for application projectors
+and appliers. DeltaFlow does not infer application projector wiring from YAML.
+
+The repository includes one concrete host-binary example at
+[cmd/deltaflow-host/main.go](cmd/deltaflow-host/main.go). It registers a real
+Postgres-backed projector and the concrete Elasticsearch applier, then invokes
+the shared CLI runtime through `NewRootCommandWithRegistry(...)`. The sample
+config for that host lives at [cmd/deltaflow-host/deltaflow.yaml](cmd/deltaflow-host/deltaflow.yaml).
 
 ## Development Hooks
 
