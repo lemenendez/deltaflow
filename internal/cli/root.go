@@ -4,12 +4,15 @@ import (
 	"context"
 
 	"github.com/lemenendez/deltaflow/internal/config"
+	"github.com/lemenendez/deltaflow/pkg/examples/contactsruntime"
+	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
 	"github.com/spf13/cobra"
 )
 
 type options struct {
-	configPath string
-	storeDSN   string
+	configPath      string
+	storeDSN        string
+	runtimeRegistry *runtimepkg.Registry
 }
 
 func Execute(ctx context.Context) error {
@@ -17,7 +20,17 @@ func Execute(ctx context.Context) error {
 }
 
 func NewRootCommand() *cobra.Command {
+	registry := runtimepkg.NewRegistry()
+	if err := contactsruntime.Register(registry, contactsruntime.RegisterConfig{}); err != nil {
+		panic(err)
+	}
+
+	return NewRootCommandWithRegistry(registry)
+}
+
+func NewRootCommandWithRegistry(registry *runtimepkg.Registry) *cobra.Command {
 	opts := &options{}
+	opts.runtimeRegistry = registry
 
 	cmd := &cobra.Command{
 		Use:           "deltaflow",
@@ -31,6 +44,7 @@ func NewRootCommand() *cobra.Command {
 
 	cmd.AddCommand(newValidateCommand(opts))
 	cmd.AddCommand(newMigrateCommand(opts))
+	cmd.AddCommand(newRunCommand(opts))
 
 	return cmd
 }

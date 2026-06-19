@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 	es "github.com/lemenendez/deltaflow/pkg/connectors/elasticsearch"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 const elasticsearchIndex = "deltaflow_products"
@@ -60,7 +60,7 @@ func newElasticsearchTarget(endpoint, index, retryProductID, deadID string) (*el
 		Endpoint: endpoint,
 		Index:    index,
 		DocumentID: func(identity deltaflow.ProjectionIdentity) (string, error) {
-			return playpg.StringFromKey(identity.Key, "product_id")
+			return hostpkg.StringFromKey(identity.Key, "product_id")
 		},
 		Refresh: "wait_for",
 	})
@@ -120,7 +120,7 @@ func (t *elasticsearchTarget) seedGhost(ctx context.Context) error {
 }
 
 func (t *elasticsearchTarget) Apply(ctx context.Context, op deltaflow.ProjectionOperation) error {
-	productID, err := playpg.StringFromKey(op.Identity.Key, "product_id")
+	productID, err := hostpkg.StringFromKey(op.Identity.Key, "product_id")
 	if err != nil {
 		return err
 	}

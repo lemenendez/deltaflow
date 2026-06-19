@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 	es "github.com/lemenendez/deltaflow/pkg/connectors/elasticsearch"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 const elasticsearchIndex = "deltaflow_crm"
@@ -59,7 +59,7 @@ func newElasticsearchCRMTarget(endpoint, index string, failOnce map[string]bool,
 		Endpoint: endpoint,
 		Index:    index,
 		DocumentID: func(identity deltaflow.ProjectionIdentity) (string, error) {
-			id, err := playpg.StringFromKey(identity.Key, "id")
+			id, err := hostpkg.StringFromKey(identity.Key, "id")
 			if err != nil {
 				return "", err
 			}
@@ -126,7 +126,7 @@ func (t *elasticsearchCRMTarget) seedGhost(ctx context.Context) error {
 }
 
 func (t *elasticsearchCRMTarget) Apply(ctx context.Context, op deltaflow.ProjectionOperation) error {
-	id, err := playpg.StringFromKey(op.Identity.Key, "id")
+	id, err := hostpkg.StringFromKey(op.Identity.Key, "id")
 	if err != nil {
 		return err
 	}

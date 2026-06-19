@@ -6,15 +6,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 type demoResult struct {
 	Scenario        *scenario
 	Enqueued        int
-	WorkerStats     playpg.WorkerLoopStats
-	JobCounts       playpg.JobCounts
+	WorkerStats     hostpkg.WorkerLoopStats
+	JobCounts       hostpkg.JobCounts
 	ProjectorGhosts int64
 	Views           map[string][]byte
 	SearchQueue     []string
@@ -24,7 +24,7 @@ type demoResult struct {
 	TargetDeletes   int
 	TargetFailures  int
 	Digest          string
-	Timings         playpg.RunTimings
+	Timings         hostpkg.RunTimings
 	WorkerLogPath   string
 }
 
@@ -32,14 +32,14 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	totalStart := time.Now()
 	setupStart := totalStart
 
-	fileLogger, err := playpg.OpenFileLogger(os.Getenv("DELTAFLOW_WORKER_LOG"))
+	fileLogger, err := hostpkg.OpenFileLogger(os.Getenv("DELTAFLOW_WORKER_LOG"))
 	if err != nil {
 		return demoResult{}, err
 	}
 	defer fileLogger.Close()
 	fileLogger.Logger.Info("playground_run_started", "sync_id", syncID, "scenario", "04-postgres-crm")
 
-	stores, err := playpg.OpenStoresWithOptions(ctx, dsn, playpg.OpenStoresOptions{
+	stores, err := hostpkg.OpenStoresWithOptions(ctx, dsn, hostpkg.OpenStoresOptions{
 		MaxAttempts: maxAttempts,
 		LeaseLogger: fileLogger.Logger,
 	})
@@ -48,7 +48,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	}
 	defer stores.DB.Close()
 
-	if err := playpg.ResetSync(ctx, stores.DB, syncID); err != nil {
+	if err := hostpkg.ResetSync(ctx, stores.DB, syncID); err != nil {
 		return demoResult{}, err
 	}
 
@@ -61,15 +61,15 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 
 	var writersDone atomic.Bool
 	workerStatsCh := make(chan struct {
-		stats playpg.WorkerLoopStats
+		stats hostpkg.WorkerLoopStats
 		err   error
 	}, 1)
 	go func() {
-		stats, err := playpg.RunWorkers(
+		stats, err := hostpkg.RunWorkers(
 			ctx,
 			workerCount,
 			func(workerID string) *deltaflow.SyncWorker {
-				worker := playpg.MakeWorker(stores, syncID, workerID, projector, scenario.target, 64)
+				worker := hostpkg.MakeWorker(stores, syncID, workerID, projector, scenario.target, 64)
 				worker.Logger = fileLogger.Logger
 				return worker
 			},
@@ -77,14 +77,14 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 				if !writersDone.Load() {
 					return false, nil
 				}
-				return playpg.WorkComplete(ctx, stores.DB, syncID)
+				return hostpkg.WorkComplete(ctx, stores.DB, syncID)
 			},
 			func(ctx context.Context) error {
-				return playpg.MakeRetryingAvailable(ctx, stores.DB, syncID)
+				return hostpkg.MakeRetryingAvailable(ctx, stores.DB, syncID)
 			},
 		)
 		workerStatsCh <- struct {
-			stats playpg.WorkerLoopStats
+			stats hostpkg.WorkerLoopStats
 			err   error
 		}{stats: stats, err: err}
 	}()
@@ -101,7 +101,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 		return demoResult{
 			Scenario:      scenario,
 			Enqueued:      writerResult.Enqueued,
-			Timings:       playpg.RunTimings{Setup: setupElapsed, Enqueue: enqueueElapsed, Total: time.Since(totalStart)},
+			Timings:       hostpkg.RunTimings{Setup: setupElapsed, Enqueue: enqueueElapsed, Total: time.Since(totalStart)},
 			WorkerLogPath: fileLogger.Path,
 		}, err
 	}
@@ -113,7 +113,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 		return demoResult{}, workerResult.err
 	}
 
-	counts, err := playpg.CountJobs(ctx, stores.DB, syncID)
+	counts, err := hostpkg.CountJobs(ctx, stores.DB, syncID)
 	if err != nil {
 		return demoResult{}, err
 	}
@@ -121,7 +121,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	if err != nil {
 		return demoResult{}, err
 	}
-	timings := playpg.RunTimings{
+	timings := hostpkg.RunTimings{
 		Setup:   setupElapsed,
 		Enqueue: enqueueElapsed,
 		Drain:   drainElapsed,
@@ -150,7 +150,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 		TargetUpserts:   upserts,
 		TargetDeletes:   deletes,
 		TargetFailures:  failures,
-		Digest:          playpg.StableDigest(views),
+		Digest:          hostpkg.StableDigest(views),
 		Timings:         timings,
 		WorkerLogPath:   fileLogger.Path,
 	}, nil

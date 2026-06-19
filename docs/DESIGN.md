@@ -1,11 +1,12 @@
 # DeltaFlow Design
 
-> Status: v0.7.0 latest-state design with Elasticsearch applier.
+> Status: v0.8.0 latest-state design with CLI runtime wiring.
 >
 > Goal: keep DeltaFlow small, explicit, and clear.
 >
-> DeltaFlow v0.7.0 exposes the latest-state worker contract through public Go APIs,
-> with in-memory and durable Postgres Delta and SyncJob stores.
+> DeltaFlow v0.8.0 exposes the latest-state worker contract through public Go APIs,
+> with in-memory and durable Postgres Delta and SyncJob stores plus explicit
+> startup runtime registration for projector/applier wiring.
 > A Sync is not a graph, not a connector registry, not a multi-target fan-out
 > system, and not an Apache Beam pipeline.
 
@@ -15,6 +16,17 @@
 ## 1. Goal
 
 DeltaFlow helps an application keep one derived system synchronized with the latest state of a business Projection.
+
+### 1.1 Runtime registration
+
+DeltaFlow keeps runtime wiring explicit and simple:
+
+- registrations are a map from exact names to factories
+- registration happens before `run`
+- duplicate names panic during startup
+
+The CLI then resolves configured names (for example projector name and target
+type) against that registry with no reflection and no name inference.
 
 This version answers one question:
 
@@ -38,9 +50,9 @@ Delta Ghost handling
 
 ---
 
-## 2. Non-goals for current scope (v0.7.0)
+## 2. Non-goals for current scope (v0.8.0)
 
-DeltaFlow v0.7.0 does not include:
+DeltaFlow v0.8.0 does not include:
 
 ```text
 CDC as the primary abstraction

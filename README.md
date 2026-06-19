@@ -42,12 +42,13 @@ custom code owned by the application.
 
 ## CLI
 
-The v0.6 CLI validates one minimal YAML shape and applies the embedded
-Postgres schema migrations:
+The CLI validates one minimal YAML shape, applies embedded Postgres schema
+migrations, and starts the v0.8 runtime wiring path with `run`:
 
 ```bash
 go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
+go run ./cmd/deltaflow run --config ./cmd/deltaflow/deltaflow.yaml
 ```
 
 Config loading expands environment variables with Go's `os.ExpandEnv`, so both
@@ -55,8 +56,10 @@ Config loading expands environment variables with Go's `os.ExpandEnv`, so both
 parsing, so quoted YAML strings are expanded too; avoid literal `$NAME`
 sequences in config values such as DSNs.
 
-`run` is intentionally deferred until DeltaFlow has an explicit runtime wiring
-model for application projectors and appliers.
+`run` currently executes one worker cycle per configured pipeline. Runtime
+registrations are explicit and map-based. DeltaFlow does not infer application
+projector wiring from YAML. Registration is done during startup before `run`,
+and duplicate names fail fast.
 
 ## Development Hooks
 

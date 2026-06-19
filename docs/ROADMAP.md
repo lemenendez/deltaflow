@@ -60,7 +60,7 @@ v0.7.0   Elasticsearch applier + real search playground
          - document REST write -> transactional Delta enqueue -> async Elasticsearch sync
 
 v0.8.0   CLI run + runtime wiring model
-         - decide explicit registry/plugin/host-binary story
+         - decide explicit registry/plugin story
          - run worker from YAML using registered projectors/appliers
          - keep runtime wiring explicit; do not infer app projectors by name
          - support Postgres store wiring from config

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/brianvoe/gofakeit/v7"
+	hostpkg "github.com/lemenendez/deltaflow/internal/host"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
-	"github.com/lemenendez/deltaflow/playground/internal/playpg"
 )
 
 type product struct {
@@ -195,7 +195,7 @@ func (s *catalogStore) project(ctx context.Context, identity deltaflow.Projectio
 	if identity.Type != projectionType {
 		return deltaflow.Projection{}, fmt.Errorf("unsupported projection type %q", identity.Type)
 	}
-	productID, err := playpg.StringFromKey(identity.Key, "product_id")
+	productID, err := hostpkg.StringFromKey(identity.Key, "product_id")
 	if err != nil {
 		return deltaflow.Projection{}, err
 	}
@@ -209,7 +209,7 @@ func (s *catalogStore) project(ctx context.Context, identity deltaflow.Projectio
 	}
 
 	doc := toSearchDocument(p)
-	return playpg.JSONProjection(identity, doc)
+	return hostpkg.JSONProjection(identity, doc)
 }
 
 func (s *catalogStore) getProduct(ctx context.Context, productID string) (product, bool, error) {
@@ -278,7 +278,7 @@ func newSearchIndexSimulator(failOnce map[string]bool, deadLetters map[string]bo
 }
 
 func (i *searchIndexSimulator) apply(_ context.Context, op deltaflow.ProjectionOperation) error {
-	productID, err := playpg.StringFromKey(op.Identity.Key, "product_id")
+	productID, err := hostpkg.StringFromKey(op.Identity.Key, "product_id")
 	if err != nil {
 		return err
 	}
