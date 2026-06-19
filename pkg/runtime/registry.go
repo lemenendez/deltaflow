@@ -81,8 +81,15 @@ func (r *Registry) RegisterApplier(targetType string, factory ApplierFactory) {
 	if factory == nil {
 		panic("runtime applier factory is required")
 	}
-	if strings.TrimSpace(targetType) == "" {
+	trimmed := strings.TrimSpace(targetType)
+	if trimmed == "" {
 		panic("runtime applier target type is required")
+	}
+	if trimmed != targetType {
+		panic(fmt.Sprintf("runtime applier target type must not include leading/trailing whitespace: %q", targetType))
+	}
+	if r.appliers == nil {
+		r.appliers = make(map[string]ApplierFactory)
 	}
 	if _, exists := r.appliers[targetType]; exists {
 		panic(fmt.Sprintf("runtime applier already registered: %q", targetType))
