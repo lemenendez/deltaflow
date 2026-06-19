@@ -88,8 +88,8 @@ func newRunCommand(opts *options) *cobra.Command {
 
 			runtimeCfg := &runtimepkg.BuildConfig{
 				Store: runtimepkg.BuildStoreConfig{
-					Type: cfg.Store.Type,
-					DSN:  cfg.Store.DSN,
+					Type: strings.TrimSpace(cfg.Store.Type),
+					DSN:  dsn,
 				},
 				Pipelines: make([]runtimepkg.BuildPipelineConfig, 0, len(cfg.Pipelines)),
 			}
