@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/lemenendez/deltaflow/pkg/connectors"
@@ -54,7 +55,15 @@ func newRunCommand(opts *options) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			db, err := sql.Open("pgx", cfg.Store.DSN)
+			if strings.TrimSpace(cfg.Store.Type) != "postgres" {
+				return fmt.Errorf("run requires store.type=postgres")
+			}
+			dsn := strings.TrimSpace(cfg.Store.DSN)
+			if dsn == "" {
+				return fmt.Errorf("run requires store.dsn to be set for store.type=postgres")
+			}
+
+			db, err := sql.Open("pgx", dsn)
 			if err != nil {
 				return err
 			}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,19 +56,20 @@ func Register(registry *runtimepkg.Registry, cfg RegisterConfig) error {
 
 	var projectorOnce sync.Once
 	var projectorDB *sql.DB
+	var projectorDSN string
 	var projectorInitErr error
 	registry.RegisterProjector(projectorName, func(ctx context.Context, spec runtimepkg.PipelineSpec) (deltaflow.Projector, error) {
-		projectorOnce.Do(func() {
-			if spec.StoreType != "postgres" {
-				projectorInitErr = fmt.Errorf("contact projector requires postgres store, got %q", spec.StoreType)
-				return
-			}
-			if spec.StoreDSN == "" {
-				projectorInitErr = errors.New("contact projector requires store dsn")
-				return
-			}
+		if spec.StoreType != "postgres" {
+			return nil, fmt.Errorf("contact projector requires postgres store, got %q", spec.StoreType)
+		}
+		dsn := strings.TrimSpace(spec.StoreDSN)
+		if dsn == "" {
+			return nil, errors.New("contact projector requires store dsn")
+		}
 
-			db, err := sql.Open("pgx", spec.StoreDSN)
+		projectorOnce.Do(func() {
+			projectorDSN = dsn
+			db, err := sql.Open("pgx", dsn)
 			if err != nil {
 				projectorInitErr = err
 				return
@@ -81,6 +83,9 @@ func Register(registry *runtimepkg.Registry, cfg RegisterConfig) error {
 			}
 			projectorDB = db
 		})
+		if dsn != projectorDSN {
+			return nil, errors.New("contact projector store dsn changed after initialization; use a new runtime registry")
+		}
 		if projectorInitErr != nil {
 			return nil, projectorInitErr
 		}

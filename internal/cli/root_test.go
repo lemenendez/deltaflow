@@ -72,6 +72,52 @@ pipelines:
     applier:
       mode: upsert
 `)
+	blankDSNConfig := writeCLIConfig(t, `
+store:
+  type: postgres
+  dsn: "   "
+
+workers:
+  concurrency: 8
+  lease_ttl: 30s
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`)
+	unsupportedStoreConfig := writeCLIConfig(t, `
+store:
+  type: mysql
+  dsn: mysql://localhost:3306/deltaflow
+
+workers:
+  concurrency: 8
+  lease_ttl: 30s
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`)
 	tests := []struct {
 		name        string
 		args        []string
@@ -102,6 +148,16 @@ pipelines:
 			name:        "run command proceeds past registration checks",
 			args:        []string{"run", "--config", validConfig},
 			wantErrText: "connect postgres",
+		},
+		{
+			name:        "run command rejects blank dsn with clear error",
+			args:        []string{"run", "--config", blankDSNConfig},
+			wantErrText: "run requires store.dsn to be set for store.type=postgres",
+		},
+		{
+			name:        "run command rejects unsupported store type",
+			args:        []string{"run", "--config", unsupportedStoreConfig},
+			wantErrText: "store.type must be postgres",
 		},
 	}
 

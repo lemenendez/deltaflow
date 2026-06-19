@@ -55,14 +55,13 @@ func (r *Registry) RegisterProjector(name string, factory ProjectorFactory) {
 	if factory == nil {
 		panic("runtime projector factory is required")
 	}
-	key := normalizeKey(name)
-	if key == "" {
+	if strings.TrimSpace(name) == "" {
 		panic("runtime projector name is required")
 	}
-	if _, exists := r.projectors[key]; exists {
+	if _, exists := r.projectors[name]; exists {
 		panic(fmt.Sprintf("runtime projector already registered: %q", name))
 	}
-	r.projectors[key] = factory
+	r.projectors[name] = factory
 }
 
 func (r *Registry) RegisterApplier(targetType string, factory ApplierFactory) {
@@ -72,14 +71,13 @@ func (r *Registry) RegisterApplier(targetType string, factory ApplierFactory) {
 	if factory == nil {
 		panic("runtime applier factory is required")
 	}
-	key := normalizeKey(targetType)
-	if key == "" {
+	if strings.TrimSpace(targetType) == "" {
 		panic("runtime applier target type is required")
 	}
-	if _, exists := r.appliers[key]; exists {
+	if _, exists := r.appliers[targetType]; exists {
 		panic(fmt.Sprintf("runtime applier already registered: %q", targetType))
 	}
-	r.appliers[key] = factory
+	r.appliers[targetType] = factory
 }
 
 func (r *Registry) ResolvePipeline(ctx context.Context, spec PipelineSpec) (PipelineRuntime, error) {
@@ -120,8 +118,7 @@ func (r *Registry) ResolvePipeline(ctx context.Context, spec PipelineSpec) (Pipe
 }
 
 func (r *Registry) lookupProjector(name string) (ProjectorFactory, bool) {
-	key := normalizeKey(name)
-	factory, ok := r.projectors[key]
+	factory, ok := r.projectors[name]
 	return factory, ok
 }
 
@@ -131,16 +128,11 @@ func (r *Registry) HasProjector(name string) bool {
 }
 
 func (r *Registry) lookupApplier(targetType string) (ApplierFactory, bool) {
-	key := normalizeKey(targetType)
-	factory, ok := r.appliers[key]
+	factory, ok := r.appliers[targetType]
 	return factory, ok
 }
 
 func (r *Registry) HasApplier(targetType string) bool {
 	_, ok := r.lookupApplier(targetType)
 	return ok
-}
-
-func normalizeKey(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
 }

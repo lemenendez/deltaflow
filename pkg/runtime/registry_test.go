@@ -54,6 +54,38 @@ func TestRegistryResolvePipelineBuildsRuntime(t *testing.T) {
 	}
 }
 
+func TestRegistryLookupsAreExact(t *testing.T) {
+	r := NewRegistry()
+
+	r.RegisterProjector("contact-projector", func(context.Context, PipelineSpec) (deltaflow.Projector, error) {
+		return deltaflow.ProjectorFunc(func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{}, nil
+		}), nil
+	})
+	r.RegisterApplier("elasticsearch", func(context.Context, PipelineSpec) (deltaflow.ProjectionApplier, error) {
+		return deltaflow.ProjectionApplierFunc(func(context.Context, deltaflow.ProjectionOperation) error { return nil }), nil
+	})
+
+	if !r.HasProjector("contact-projector") {
+		t.Fatal("HasProjector exact match = false, want true")
+	}
+	if r.HasProjector("Contact-Projector") {
+		t.Fatal("HasProjector case-mismatched lookup = true, want false")
+	}
+	if r.HasProjector(" contact-projector ") {
+		t.Fatal("HasProjector whitespace-mismatched lookup = true, want false")
+	}
+	if !r.HasApplier("elasticsearch") {
+		t.Fatal("HasApplier exact match = false, want true")
+	}
+	if r.HasApplier("ElasticSearch") {
+		t.Fatal("HasApplier case-mismatched lookup = true, want false")
+	}
+	if r.HasApplier(" elasticsearch ") {
+		t.Fatal("HasApplier whitespace-mismatched lookup = true, want false")
+	}
+}
+
 func TestRegistryRegisterProjectorPanicsOnDuplicate(t *testing.T) {
 	r := NewRegistry()
 	r.RegisterProjector("contact-projector", func(context.Context, PipelineSpec) (deltaflow.Projector, error) {
