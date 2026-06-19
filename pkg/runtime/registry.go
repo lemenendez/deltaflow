@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,15 +16,17 @@ var (
 )
 
 type PipelineSpec struct {
-	Name          string
-	SyncID        deltaflow.SyncID
-	StoreType     string
-	StoreDSN      string
-	ProjectorName string
-	SourceType    string
-	TargetType    string
-	TargetIndex   string
-	ApplierMode   string
+	Name                 string
+	SyncID               deltaflow.SyncID
+	StoreType            string
+	StoreDSN             string
+	StoreDB              *sql.DB
+	ProjectorName        string
+	SourceType           string
+	SourceProjectionType string
+	TargetType           string
+	TargetIndex          string
+	ApplierMode          string
 }
 
 type ProjectorFactory func(ctx context.Context, spec PipelineSpec) (deltaflow.Projector, error)

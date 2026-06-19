@@ -2,45 +2,51 @@ package contactsruntime
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
 	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
 )
 
-func TestRegisterProjectorRejectsStoreDSNChangeAfterInitialization(t *testing.T) {
+func TestRegisterProjectorRequiresSharedStoreDBHandle(t *testing.T) {
 	registry := runtimepkg.NewRegistry()
 	if err := Register(registry, RegisterConfig{}); err != nil {
 		t.Fatalf("Register error: %v", err)
 	}
 
-	firstCtx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, firstErr := registry.ResolvePipeline(firstCtx, runtimepkg.PipelineSpec{
+	_, err := registry.ResolvePipeline(context.Background(), runtimepkg.PipelineSpec{
 		Name:          "contacts",
 		ProjectorName: "contact-projector",
 		TargetType:    "elasticsearch",
 		TargetIndex:   "contacts",
 		StoreType:     "postgres",
-		StoreDSN:      "postgres://first",
+		StoreDSN:      "postgres://unused",
 	})
-	if firstErr == nil {
-		t.Fatal("ResolvePipeline firstErr = nil")
+	if err == nil {
+		t.Fatal("ResolvePipeline error = nil")
+	}
+	if !strings.Contains(err.Error(), "requires shared store db handle") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRegisterProjectorUsesProvidedSharedStoreDBHandle(t *testing.T) {
+	registry := runtimepkg.NewRegistry()
+	if err := Register(registry, RegisterConfig{}); err != nil {
+		t.Fatalf("Register error: %v", err)
 	}
 
-	_, secondErr := registry.ResolvePipeline(context.Background(), runtimepkg.PipelineSpec{
+	_, err := registry.ResolvePipeline(context.Background(), runtimepkg.PipelineSpec{
 		Name:          "contacts",
 		ProjectorName: "contact-projector",
 		TargetType:    "elasticsearch",
 		TargetIndex:   "contacts",
 		StoreType:     "postgres",
-		StoreDSN:      "postgres://second",
+		StoreDSN:      "postgres://unused",
+		StoreDB:       &sql.DB{},
 	})
-	if secondErr == nil {
-		t.Fatal("ResolvePipeline secondErr = nil")
-	}
-	if !strings.Contains(secondErr.Error(), "store dsn changed after initialization") {
-		t.Fatalf("error = %v", secondErr)
+	if err != nil {
+		t.Fatalf("ResolvePipeline error: %v", err)
 	}
 }

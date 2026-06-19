@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -13,6 +14,7 @@ import (
 type WorkerDeps struct {
 	JobStore   deltaflow.JobStore
 	Dispatcher deltaflow.DispatchStore
+	StoreDB    *sql.DB
 	WorkerID   string
 	LockFor    time.Duration
 	PullSize   int
@@ -47,16 +49,22 @@ func BuildFromConfig(ctx context.Context, cfg *config.Config, registry *Registry
 
 	runners := make([]PipelineRunner, 0, len(cfg.Pipelines))
 	for _, p := range cfg.Pipelines {
+		if p.Source.Type == "postgres-outbox" && deps.Dispatcher == nil {
+			return nil, fmt.Errorf("pipeline %q: runtime dispatcher is required for source.type=postgres-outbox", p.Name)
+		}
+
 		spec := PipelineSpec{
-			Name:          p.Name,
-			SyncID:        deltaflow.SyncID(p.SyncID),
-			StoreType:     cfg.Store.Type,
-			StoreDSN:      cfg.Store.DSN,
-			ProjectorName: p.Projector.Name,
-			SourceType:    p.Source.Type,
-			TargetType:    p.Target.Type,
-			TargetIndex:   p.Target.Index,
-			ApplierMode:   p.Applier.Mode,
+			Name:                 p.Name,
+			SyncID:               deltaflow.SyncID(p.SyncID),
+			StoreType:            cfg.Store.Type,
+			StoreDSN:             cfg.Store.DSN,
+			StoreDB:              deps.StoreDB,
+			ProjectorName:        p.Projector.Name,
+			SourceType:           p.Source.Type,
+			SourceProjectionType: p.Source.ProjectionType,
+			TargetType:           p.Target.Type,
+			TargetIndex:          p.Target.Index,
+			ApplierMode:          p.Applier.Mode,
 		}
 		resolved, err := registry.ResolvePipeline(ctx, spec)
 		if err != nil {

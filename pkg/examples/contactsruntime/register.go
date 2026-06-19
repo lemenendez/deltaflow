@@ -2,14 +2,10 @@ package contactsruntime
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
-	"sync"
-	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/lemenendez/deltaflow/pkg/connectors/elasticsearch"
@@ -54,42 +50,14 @@ func Register(registry *runtimepkg.Registry, cfg RegisterConfig) error {
 		esRefreshEnv = "DELTAFLOW_ES_REFRESH"
 	}
 
-	var projectorOnce sync.Once
-	var projectorDB *sql.DB
-	var projectorDSN string
-	var projectorInitErr error
-	registry.RegisterProjector(projectorName, func(ctx context.Context, spec runtimepkg.PipelineSpec) (deltaflow.Projector, error) {
+	registry.RegisterProjector(projectorName, func(_ context.Context, spec runtimepkg.PipelineSpec) (deltaflow.Projector, error) {
 		if spec.StoreType != "postgres" {
 			return nil, fmt.Errorf("contact projector requires postgres store, got %q", spec.StoreType)
 		}
-		dsn := strings.TrimSpace(spec.StoreDSN)
-		if dsn == "" {
-			return nil, errors.New("contact projector requires store dsn")
+		if spec.StoreDB == nil {
+			return nil, errors.New("contact projector requires shared store db handle")
 		}
-
-		projectorOnce.Do(func() {
-			projectorDSN = dsn
-			db, err := sql.Open("pgx", dsn)
-			if err != nil {
-				projectorInitErr = err
-				return
-			}
-			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
-			if err := db.PingContext(pingCtx); err != nil {
-				_ = db.Close()
-				projectorInitErr = fmt.Errorf("contact projector connect postgres: %w", err)
-				return
-			}
-			projectorDB = db
-		})
-		if dsn != projectorDSN {
-			return nil, errors.New("contact projector store dsn changed after initialization; use a new runtime registry")
-		}
-		if projectorInitErr != nil {
-			return nil, projectorInitErr
-		}
-		return NewContactProjector(projectorDB, sourceTable)
+		return NewContactProjector(spec.StoreDB, sourceTable)
 	})
 
 	registry.RegisterApplier(targetType, func(_ context.Context, spec runtimepkg.PipelineSpec) (deltaflow.ProjectionApplier, error) {

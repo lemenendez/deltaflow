@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,5 +82,113 @@ func TestRunOnceBuildsAndExecutesPipelines(t *testing.T) {
 	}
 	if applied != 1 {
 		t.Fatalf("applied = %d, want 1", applied)
+	}
+}
+
+func TestBuildFromConfigRequiresDispatcherForOutboxSource(t *testing.T) {
+	jobStore := internal.NewJobMemoryStore()
+
+	registry := NewRegistry()
+	registry.RegisterProjector("contact-projector", func(context.Context, PipelineSpec) (deltaflow.Projector, error) {
+		return deltaflow.ProjectorFunc(func(_ context.Context, id deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: id, Payload: []byte(`{"ok":true}`), MediaType: "application/json"}, nil
+		}), nil
+	})
+	registry.RegisterApplier("elasticsearch", func(context.Context, PipelineSpec) (deltaflow.ProjectionApplier, error) {
+		return deltaflow.ProjectionApplierFunc(func(_ context.Context, _ deltaflow.ProjectionOperation) error {
+			return nil
+		}), nil
+	})
+
+	cfg := &config.Config{
+		Store: config.StoreConfig{Type: "postgres", DSN: "postgres://unused"},
+		Workers: config.WorkersConfig{
+			Concurrency: 1,
+			LeaseTTL:    "30s",
+		},
+		Pipelines: []config.PipelineConfig{
+			{
+				Name:   "contacts",
+				SyncID: "contacts-sync",
+				Source: config.SourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
+				Projector: config.ProjectorConfig{
+					Name: "contact-projector",
+				},
+				Target:  config.TargetConfig{Type: "elasticsearch", Index: "contacts"},
+				Applier: config.ApplierConfig{Mode: "upsert"},
+			},
+		},
+	}
+
+	_, err := BuildFromConfig(context.Background(), cfg, registry, WorkerDeps{
+		JobStore: jobStore,
+		WorkerID: "worker-test",
+		LockFor:  5 * time.Second,
+		PullSize: 1,
+	})
+	if err == nil {
+		t.Fatal("BuildFromConfig error = nil")
+	}
+	if !strings.Contains(err.Error(), "runtime dispatcher is required for source.type=postgres-outbox") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestBuildFromConfigCarriesSourceProjectionTypeIntoSpec(t *testing.T) {
+	jobStore := internal.NewJobMemoryStore()
+	deltaStore := internal.NewDeltaMemoryStore()
+	dispatch := internal.NewMemoryDispatchStore(deltaStore, jobStore, nil)
+
+	var projectorSpec PipelineSpec
+	var applierSpec PipelineSpec
+
+	registry := NewRegistry()
+	registry.RegisterProjector("contact-projector", func(_ context.Context, spec PipelineSpec) (deltaflow.Projector, error) {
+		projectorSpec = spec
+		return deltaflow.ProjectorFunc(func(_ context.Context, id deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: id, Payload: []byte(`{"ok":true}`), MediaType: "application/json"}, nil
+		}), nil
+	})
+	registry.RegisterApplier("elasticsearch", func(_ context.Context, spec PipelineSpec) (deltaflow.ProjectionApplier, error) {
+		applierSpec = spec
+		return deltaflow.ProjectionApplierFunc(func(_ context.Context, _ deltaflow.ProjectionOperation) error { return nil }), nil
+	})
+
+	cfg := &config.Config{
+		Store: config.StoreConfig{Type: "postgres", DSN: "postgres://unused"},
+		Workers: config.WorkersConfig{
+			Concurrency: 1,
+			LeaseTTL:    "30s",
+		},
+		Pipelines: []config.PipelineConfig{
+			{
+				Name:   "contacts",
+				SyncID: "contacts-sync",
+				Source: config.SourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
+				Projector: config.ProjectorConfig{
+					Name: "contact-projector",
+				},
+				Target:  config.TargetConfig{Type: "elasticsearch", Index: "contacts"},
+				Applier: config.ApplierConfig{Mode: "upsert"},
+			},
+		},
+	}
+
+	_, err := BuildFromConfig(context.Background(), cfg, registry, WorkerDeps{
+		JobStore:   jobStore,
+		Dispatcher: dispatch,
+		WorkerID:   "worker-test",
+		LockFor:    5 * time.Second,
+		PullSize:   1,
+	})
+	if err != nil {
+		t.Fatalf("BuildFromConfig error: %v", err)
+	}
+
+	if projectorSpec.SourceProjectionType != "contact" {
+		t.Fatalf("projector spec source projection type = %q, want %q", projectorSpec.SourceProjectionType, "contact")
+	}
+	if applierSpec.SourceProjectionType != "contact" {
+		t.Fatalf("applier spec source projection type = %q, want %q", applierSpec.SourceProjectionType, "contact")
 	}
 }
