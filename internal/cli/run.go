@@ -89,6 +89,7 @@ func newRunCommand(opts *options) *cobra.Command {
 			built, err := runtimepkg.BuildFromConfig(ctx, cfg, opts.runtimeRegistry, runtimepkg.WorkerDeps{
 				JobStore:   jobStore,
 				Dispatcher: dispatchStore,
+				StoreDB:    db,
 				WorkerID:   workerID,
 				LockFor:    leaseTTL,
 				PullSize:   pullSize,
