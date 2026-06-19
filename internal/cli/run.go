@@ -86,7 +86,35 @@ func newRunCommand(opts *options) *cobra.Command {
 				pullSize = *cfg.Workers.PullSize
 			}
 
-			built, err := runtimepkg.BuildFromConfig(ctx, cfg, opts.runtimeRegistry, runtimepkg.WorkerDeps{
+			runtimeCfg := &runtimepkg.BuildConfig{
+				Store: runtimepkg.BuildStoreConfig{
+					Type: cfg.Store.Type,
+					DSN:  cfg.Store.DSN,
+				},
+				Pipelines: make([]runtimepkg.BuildPipelineConfig, 0, len(cfg.Pipelines)),
+			}
+			for _, p := range cfg.Pipelines {
+				runtimeCfg.Pipelines = append(runtimeCfg.Pipelines, runtimepkg.BuildPipelineConfig{
+					Name:   p.Name,
+					SyncID: p.SyncID,
+					Source: runtimepkg.BuildSourceConfig{
+						Type:           p.Source.Type,
+						ProjectionType: p.Source.ProjectionType,
+					},
+					Projector: runtimepkg.BuildProjectorConfig{
+						Name: p.Projector.Name,
+					},
+					Target: runtimepkg.BuildTargetConfig{
+						Type:  p.Target.Type,
+						Index: p.Target.Index,
+					},
+					Applier: runtimepkg.BuildApplierConfig{
+						Mode: p.Applier.Mode,
+					},
+				})
+			}
+
+			built, err := runtimepkg.BuildFromConfig(ctx, runtimeCfg, opts.runtimeRegistry, runtimepkg.WorkerDeps{
 				JobStore:   jobStore,
 				Dispatcher: dispatchStore,
 				StoreDB:    db,

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/lemenendez/deltaflow/internal"
-	"github.com/lemenendez/deltaflow/internal/config"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
@@ -46,22 +45,18 @@ func TestRunOnceBuildsAndExecutesPipelines(t *testing.T) {
 		}), nil
 	})
 
-	cfg := &config.Config{
-		Store: config.StoreConfig{Type: "postgres", DSN: "postgres://unused"},
-		Workers: config.WorkersConfig{
-			Concurrency: 1,
-			LeaseTTL:    "30s",
-		},
-		Pipelines: []config.PipelineConfig{
+	cfg := &BuildConfig{
+		Store: BuildStoreConfig{Type: "postgres", DSN: "postgres://unused"},
+		Pipelines: []BuildPipelineConfig{
 			{
 				Name:   "contacts",
 				SyncID: "contacts-sync",
-				Source: config.SourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
-				Projector: config.ProjectorConfig{
+				Source: BuildSourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
+				Projector: BuildProjectorConfig{
 					Name: "contact-projector",
 				},
-				Target:  config.TargetConfig{Type: "elasticsearch", Index: "contacts"},
-				Applier: config.ApplierConfig{Mode: "upsert"},
+				Target:  BuildTargetConfig{Type: "elasticsearch", Index: "contacts"},
+				Applier: BuildApplierConfig{Mode: "upsert"},
 			},
 		},
 	}
@@ -100,22 +95,18 @@ func TestBuildFromConfigRequiresDispatcherForOutboxSource(t *testing.T) {
 		}), nil
 	})
 
-	cfg := &config.Config{
-		Store: config.StoreConfig{Type: "postgres", DSN: "postgres://unused"},
-		Workers: config.WorkersConfig{
-			Concurrency: 1,
-			LeaseTTL:    "30s",
-		},
-		Pipelines: []config.PipelineConfig{
+	cfg := &BuildConfig{
+		Store: BuildStoreConfig{Type: "postgres", DSN: "postgres://unused"},
+		Pipelines: []BuildPipelineConfig{
 			{
 				Name:   "contacts",
 				SyncID: "contacts-sync",
-				Source: config.SourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
-				Projector: config.ProjectorConfig{
+				Source: BuildSourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
+				Projector: BuildProjectorConfig{
 					Name: "contact-projector",
 				},
-				Target:  config.TargetConfig{Type: "elasticsearch", Index: "contacts"},
-				Applier: config.ApplierConfig{Mode: "upsert"},
+				Target:  BuildTargetConfig{Type: "elasticsearch", Index: "contacts"},
+				Applier: BuildApplierConfig{Mode: "upsert"},
 			},
 		},
 	}
@@ -154,22 +145,18 @@ func TestBuildFromConfigCarriesSourceProjectionTypeIntoSpec(t *testing.T) {
 		return deltaflow.ProjectionApplierFunc(func(_ context.Context, _ deltaflow.ProjectionOperation) error { return nil }), nil
 	})
 
-	cfg := &config.Config{
-		Store: config.StoreConfig{Type: "postgres", DSN: "postgres://unused"},
-		Workers: config.WorkersConfig{
-			Concurrency: 1,
-			LeaseTTL:    "30s",
-		},
-		Pipelines: []config.PipelineConfig{
+	cfg := &BuildConfig{
+		Store: BuildStoreConfig{Type: "postgres", DSN: "postgres://unused"},
+		Pipelines: []BuildPipelineConfig{
 			{
 				Name:   "contacts",
 				SyncID: "contacts-sync",
-				Source: config.SourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
-				Projector: config.ProjectorConfig{
+				Source: BuildSourceConfig{Type: "postgres-outbox", ProjectionType: "contact"},
+				Projector: BuildProjectorConfig{
 					Name: "contact-projector",
 				},
-				Target:  config.TargetConfig{Type: "elasticsearch", Index: "contacts"},
-				Applier: config.ApplierConfig{Mode: "upsert"},
+				Target:  BuildTargetConfig{Type: "elasticsearch", Index: "contacts"},
+				Applier: BuildApplierConfig{Mode: "upsert"},
 			},
 		},
 	}

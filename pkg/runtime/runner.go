@@ -7,9 +7,45 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lemenendez/deltaflow/internal/config"
 	"github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
+
+type BuildConfig struct {
+	Store     BuildStoreConfig
+	Pipelines []BuildPipelineConfig
+}
+
+type BuildStoreConfig struct {
+	Type string
+	DSN  string
+}
+
+type BuildPipelineConfig struct {
+	Name      string
+	SyncID    string
+	Source    BuildSourceConfig
+	Projector BuildProjectorConfig
+	Target    BuildTargetConfig
+	Applier   BuildApplierConfig
+}
+
+type BuildSourceConfig struct {
+	Type           string
+	ProjectionType string
+}
+
+type BuildProjectorConfig struct {
+	Name string
+}
+
+type BuildTargetConfig struct {
+	Type  string
+	Index string
+}
+
+type BuildApplierConfig struct {
+	Mode string
+}
 
 type WorkerDeps struct {
 	JobStore   deltaflow.JobStore
@@ -30,7 +66,7 @@ type BuildResult struct {
 	Pipelines []PipelineRunner
 }
 
-func BuildFromConfig(ctx context.Context, cfg *config.Config, registry *Registry, deps WorkerDeps) (*BuildResult, error) {
+func BuildFromConfig(ctx context.Context, cfg *BuildConfig, registry *Registry, deps WorkerDeps) (*BuildResult, error) {
 	if cfg == nil {
 		return nil, errors.New("runtime config is required")
 	}
