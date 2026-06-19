@@ -58,8 +58,15 @@ func (r *Registry) RegisterProjector(name string, factory ProjectorFactory) {
 	if factory == nil {
 		panic("runtime projector factory is required")
 	}
-	if strings.TrimSpace(name) == "" {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
 		panic("runtime projector name is required")
+	}
+	if trimmed != name {
+		panic(fmt.Sprintf("runtime projector name must not include leading/trailing whitespace: %q", name))
+	}
+	if r.projectors == nil {
+		r.projectors = make(map[string]ProjectorFactory)
 	}
 	if _, exists := r.projectors[name]; exists {
 		panic(fmt.Sprintf("runtime projector already registered: %q", name))
