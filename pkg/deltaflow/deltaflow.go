@@ -136,6 +136,14 @@ type JobStore interface {
 	MarkDead(ctx context.Context, jobID SyncJobID, workerID string, err error) error
 }
 
+// JobStoreBatchClaims exposes optional batch-claim support.
+// Implementations may be type-asserted from JobStore where supported.
+type JobStoreBatchClaims interface {
+	// ClaimNextBatch claims up to limit jobs in claim order for the provided sync.
+	// A non-positive limit returns no rows.
+	ClaimNextBatch(ctx context.Context, syncID SyncID, workerID string, limit int, lockFor time.Duration) ([]*SyncJob, error)
+}
+
 // JobLeaseQueries exposes optional operational lease query helpers.
 // Implementations may be type-asserted from JobStore where supported.
 type JobLeaseQueries interface {

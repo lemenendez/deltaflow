@@ -48,12 +48,14 @@ type BuildApplierConfig struct {
 }
 
 type WorkerDeps struct {
-	JobStore   deltaflow.JobStore
-	Dispatcher deltaflow.DispatchStore
-	StoreDB    *sql.DB
-	WorkerID   string
-	LockFor    time.Duration
-	PullSize   int
+	JobStore    deltaflow.JobStore
+	Dispatcher  deltaflow.DispatchStore
+	StoreDB     *sql.DB
+	WorkerID    string
+	LockFor     time.Duration
+	PullSize    int
+	BatchSize   int
+	Concurrency int
 }
 
 type PipelineRunner struct {
@@ -108,14 +110,16 @@ func BuildFromConfig(ctx context.Context, cfg *BuildConfig, registry *Registry, 
 		}
 
 		worker := &deltaflow.SyncWorker{
-			JobStore:   deps.JobStore,
-			Dispatcher: deps.Dispatcher,
-			Projector:  resolved.Projector,
-			Applier:    resolved.Applier,
-			SyncID:     resolved.Spec.SyncID,
-			WorkerID:   deps.WorkerID,
-			LockFor:    deps.LockFor,
-			PullSize:   deps.PullSize,
+			JobStore:    deps.JobStore,
+			Dispatcher:  deps.Dispatcher,
+			Projector:   resolved.Projector,
+			Applier:     resolved.Applier,
+			SyncID:      resolved.Spec.SyncID,
+			WorkerID:    deps.WorkerID,
+			LockFor:     deps.LockFor,
+			PullSize:    deps.PullSize,
+			BatchSize:   deps.BatchSize,
+			Concurrency: deps.Concurrency,
 		}
 
 		runners = append(runners, PipelineRunner{

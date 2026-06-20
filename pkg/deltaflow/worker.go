@@ -5,15 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 )
 
 // SyncWorkerConfig contains the required runtime identity for a SyncWorker.
 type SyncWorkerConfig struct {
-	SyncID   SyncID
-	WorkerID string
-	LockFor  time.Duration
-	PullSize int
+	SyncID      SyncID
+	WorkerID    string
+	LockFor     time.Duration
+	PullSize    int
+	BatchSize   int
+	Concurrency int
 }
 
 func (c SyncWorkerConfig) Validate() error {
@@ -39,13 +42,16 @@ type SyncWorker struct {
 	Applier    ProjectionApplier
 	Logger     *slog.Logger
 
-	SyncID   SyncID
-	WorkerID string
-	LockFor  time.Duration
-	PullSize int
+	SyncID      SyncID
+	WorkerID    string
+	LockFor     time.Duration
+	PullSize    int
+	BatchSize   int
+	Concurrency int
 }
 
-// RunOnce processes at most one claimed job.
+// RunOnce dispatches pending deltas and processes one worker cycle.
+// Each cycle can run with configurable concurrency and per-routine batch claims.
 func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	if err := w.validateRunOnceDependencies(); err != nil {
 		return err
@@ -55,83 +61,37 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		return err
 	}
 
-	job, err := w.JobStore.ClaimNext(ctx, w.SyncID, w.WorkerID, w.LockFor)
-	if err != nil {
-		return err
+	concurrency := w.effectiveConcurrency()
+	batchSize := w.effectiveBatchSize()
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, concurrency)
+	var wg sync.WaitGroup
+
+	for i := 0; i < concurrency; i++ {
+		workerID := w.WorkerIDForRoutine(i)
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			if err := w.processBatch(workerCtx, id, batchSize); err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				cancel()
+			}
+		}(workerID)
 	}
 
-	if job == nil {
-		w.logLease("worker_claim_empty",
-			"sync_id", w.SyncID,
-			"worker_id", w.WorkerID,
-		)
+	wg.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	default:
 		return nil
 	}
-	w.logLease("worker_claimed",
-		"sync_id", w.SyncID,
-		"job_id", job.ID,
-		"worker_id", w.WorkerID,
-		"state", job.State,
-		"attempt_count", job.AttemptCount,
-		"locked_until", job.LockedUntil,
-		"lease_ms_remaining", workerLeaseMSRemaining(job.LockedUntil, time.Now().UTC()),
-	)
-
-	jobCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	heartbeatErrCh := make(chan error, 1)
-	go w.heartbeatLease(jobCtx, cancel, job.ID, heartbeatErrCh)
-
-	identity := ProjectionIdentity{
-		Type: job.ProjectionType,
-		Key:  job.ProjectionKey,
-	}
-
-	projection, err := w.Projector.Project(jobCtx, identity)
-
-	if errors.Is(err, ErrProjectionNotFound) {
-		op := ProjectionOperation{
-			Type:     ProjectionOpDelete,
-			Identity: identity,
-		}
-
-		if applyErr := w.Applier.Apply(jobCtx, op); applyErr != nil {
-			if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
-				return w.failOrRetry(ctx, job, heartbeatErr)
-			}
-			return w.failOrRetry(ctx, job, applyErr)
-		}
-		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
-			return w.failOrRetry(ctx, job, heartbeatErr)
-		}
-
-		return w.JobStore.MarkSynced(ctx, job.ID, w.WorkerID, true)
-	}
-
-	if err != nil {
-		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
-			return w.failOrRetry(ctx, job, heartbeatErr)
-		}
-		return w.failOrRetry(ctx, job, err)
-	}
-
-	op := ProjectionOperation{
-		Type:       ProjectionOpUpsert,
-		Identity:   identity,
-		Projection: &projection,
-	}
-
-	if err := w.Applier.Apply(jobCtx, op); err != nil {
-		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
-			return w.failOrRetry(ctx, job, heartbeatErr)
-		}
-		return w.failOrRetry(ctx, job, err)
-	}
-	if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
-		return w.failOrRetry(ctx, job, heartbeatErr)
-	}
-
-	return w.JobStore.MarkSynced(ctx, job.ID, w.WorkerID, false)
 }
 
 func (w *SyncWorker) validateRunOnceDependencies() error {
@@ -169,25 +129,147 @@ func (w *SyncWorker) dispatchDeltas(ctx context.Context) error {
 
 func (w *SyncWorker) config() SyncWorkerConfig {
 	return SyncWorkerConfig{
-		SyncID:   w.SyncID,
-		WorkerID: w.WorkerID,
-		LockFor:  w.LockFor,
-		PullSize: w.PullSize,
+		SyncID:      w.SyncID,
+		WorkerID:    w.WorkerID,
+		LockFor:     w.LockFor,
+		PullSize:    w.PullSize,
+		BatchSize:   w.BatchSize,
+		Concurrency: w.Concurrency,
 	}
+}
+
+func (w *SyncWorker) processBatch(ctx context.Context, workerID string, batchSize int) error {
+	jobs, err := w.claimBatch(ctx, workerID, batchSize)
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		w.logLease("worker_claim_empty",
+			"sync_id", w.SyncID,
+			"worker_id", workerID,
+		)
+		return nil
+	}
+
+	for _, job := range jobs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := w.processJob(ctx, workerID, job); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (w *SyncWorker) processJob(ctx context.Context, workerID string, job *SyncJob) error {
+	w.logLease("worker_claimed",
+		"sync_id", w.SyncID,
+		"job_id", job.ID,
+		"worker_id", workerID,
+		"state", job.State,
+		"attempt_count", job.AttemptCount,
+		"locked_until", job.LockedUntil,
+		"lease_ms_remaining", workerLeaseMSRemaining(job.LockedUntil, time.Now().UTC()),
+	)
+
+	jobCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	heartbeatErrCh := make(chan error, 1)
+	go w.heartbeatLeaseWithWorker(jobCtx, cancel, job.ID, workerID, heartbeatErrCh)
+
+	identity := ProjectionIdentity{
+		Type: job.ProjectionType,
+		Key:  job.ProjectionKey,
+	}
+
+	projection, err := w.Projector.Project(jobCtx, identity)
+
+	if errors.Is(err, ErrProjectionNotFound) {
+		op := ProjectionOperation{
+			Type:     ProjectionOpDelete,
+			Identity: identity,
+		}
+
+		if applyErr := w.Applier.Apply(jobCtx, op); applyErr != nil {
+			if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+				return w.failOrRetryWithWorker(ctx, job, workerID, heartbeatErr)
+			}
+			return w.failOrRetryWithWorker(ctx, job, workerID, applyErr)
+		}
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetryWithWorker(ctx, job, workerID, heartbeatErr)
+		}
+
+		return w.JobStore.MarkSynced(ctx, job.ID, workerID, true)
+	}
+
+	if err != nil {
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetryWithWorker(ctx, job, workerID, heartbeatErr)
+		}
+		return w.failOrRetryWithWorker(ctx, job, workerID, err)
+	}
+
+	op := ProjectionOperation{
+		Type:       ProjectionOpUpsert,
+		Identity:   identity,
+		Projection: &projection,
+	}
+
+	if err := w.Applier.Apply(jobCtx, op); err != nil {
+		if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+			return w.failOrRetryWithWorker(ctx, job, workerID, heartbeatErr)
+		}
+		return w.failOrRetryWithWorker(ctx, job, workerID, err)
+	}
+	if heartbeatErr := w.tryHeartbeatError(heartbeatErrCh); heartbeatErr != nil {
+		return w.failOrRetryWithWorker(ctx, job, workerID, heartbeatErr)
+	}
+
+	return w.JobStore.MarkSynced(ctx, job.ID, workerID, false)
+}
+
+func (w *SyncWorker) claimBatch(ctx context.Context, workerID string, batchSize int) ([]*SyncJob, error) {
+	if claimant, ok := w.JobStore.(JobStoreBatchClaims); ok {
+		return claimant.ClaimNextBatch(ctx, w.SyncID, workerID, batchSize, w.LockFor)
+	}
+
+	jobs := make([]*SyncJob, 0, batchSize)
+	for i := 0; i < batchSize; i++ {
+		job, err := w.JobStore.ClaimNext(ctx, w.SyncID, workerID, w.LockFor)
+		if err != nil {
+			return nil, err
+		}
+		if job == nil {
+			break
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
 }
 
 func (w *SyncWorker) failOrRetry(ctx context.Context, job *SyncJob, err error) error {
+	return w.failOrRetryWithWorker(ctx, job, w.WorkerID, err)
+}
+
+func (w *SyncWorker) failOrRetryWithWorker(ctx context.Context, job *SyncJob, workerID string, err error) error {
 	nextAttempt := job.AttemptCount + 1
 
 	if nextAttempt >= job.MaxAttempts {
-		return w.JobStore.MarkDead(ctx, job.ID, w.WorkerID, err)
+		return w.JobStore.MarkDead(ctx, job.ID, workerID, err)
 	}
 
 	nextRunAt := time.Now().UTC().Add(workerBackoff(nextAttempt))
-	return w.JobStore.MarkRetrying(ctx, job.ID, w.WorkerID, err, nextRunAt)
+	return w.JobStore.MarkRetrying(ctx, job.ID, workerID, err, nextRunAt)
 }
 
 func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFunc, jobID SyncJobID, errCh chan<- error) {
+	w.heartbeatLeaseWithWorker(ctx, cancel, jobID, w.WorkerID, errCh)
+}
+
+func (w *SyncWorker) heartbeatLeaseWithWorker(ctx context.Context, cancel context.CancelFunc, jobID SyncJobID, workerID string, errCh chan<- error) {
 	interval := w.LockFor / 2
 	if interval <= 0 {
 		interval = w.LockFor
@@ -204,15 +286,15 @@ func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFu
 			w.logLease("worker_heartbeat_stopped",
 				"sync_id", w.SyncID,
 				"job_id", jobID,
-				"worker_id", w.WorkerID,
+				"worker_id", workerID,
 			)
 			return
 		case <-ticker.C:
-			if err := w.JobStore.RenewLease(ctx, jobID, w.WorkerID, w.LockFor); err != nil {
+			if err := w.JobStore.RenewLease(ctx, jobID, workerID, w.LockFor); err != nil {
 				w.logLease("worker_heartbeat_renew_failed",
 					"sync_id", w.SyncID,
 					"job_id", jobID,
-					"worker_id", w.WorkerID,
+					"worker_id", workerID,
 					"reason", workerLeaseResult(err),
 					"error", err.Error(),
 				)
@@ -234,6 +316,27 @@ func (w *SyncWorker) tryHeartbeatError(errCh <-chan error) error {
 	default:
 		return nil
 	}
+}
+
+func (w *SyncWorker) effectiveBatchSize() int {
+	if w.BatchSize <= 0 {
+		return 1
+	}
+	return w.BatchSize
+}
+
+func (w *SyncWorker) effectiveConcurrency() int {
+	if w.Concurrency <= 0 {
+		return 1
+	}
+	return w.Concurrency
+}
+
+func (w *SyncWorker) WorkerIDForRoutine(routine int) string {
+	if routine <= 0 {
+		return w.WorkerID
+	}
+	return fmt.Sprintf("%s-r%d", w.WorkerID, routine)
 }
 
 func workerBackoff(attempt int) time.Duration {

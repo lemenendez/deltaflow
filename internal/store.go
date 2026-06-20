@@ -542,6 +542,97 @@ func (s *JobMemoryStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID,
 	return claimed, nil
 }
 
+func (s *JobMemoryStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, workerID string, limit int, lockFor time.Duration) ([]*deltaflow.SyncJob, error) {
+	telemetry := s.leaseTelemetry()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if lockFor <= 0 {
+		telemetry.ObserveLeaseClaim(deltaflow.LeaseTelemetryResultInvalidLockFor)
+		s.logLease("lease_claim_rejected",
+			"sync_id", syncID,
+			"worker_id", workerID,
+			"reason", "invalid_lock_for",
+		)
+		return nil, deltaflow.ErrInvalidLockFor
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	s.mu.Lock()
+	now := s.now().UTC()
+	ids := s.claimableJobIDsLocked(now, syncID)
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+
+	if len(ids) == 0 {
+		s.mu.Unlock()
+		telemetry.ObserveLeaseClaim(deltaflow.LeaseTelemetryResultEmpty)
+		s.logLease("lease_claim_empty",
+			"sync_id", syncID,
+			"worker_id", workerID,
+		)
+		return nil, nil
+	}
+
+	claimed := make([]*deltaflow.SyncJob, 0, len(ids))
+	type claimLog struct {
+		jobID        deltaflow.SyncJobID
+		state        deltaflow.SyncJobState
+		attemptCount int
+		lockedUntil  time.Time
+		reason       string
+	}
+	logs := make([]claimLog, 0, len(ids))
+
+	for _, id := range ids {
+		job := s.jobs[id]
+		wasExpiredProcessing := job.State == deltaflow.StateProcessing && (job.LockedUntil == nil || !job.LockedUntil.After(now))
+		job.State = deltaflow.StateProcessing
+		job.LockedBy = stringPtr(workerID)
+		lockedUntil := now.Add(lockFor)
+		job.LockedUntil = &lockedUntil
+		job.UpdatedAt = now
+
+		reason := "ready"
+		if wasExpiredProcessing {
+			reason = "expired_reclaimed"
+		}
+		logs = append(logs, claimLog{
+			jobID:        job.ID,
+			state:        job.State,
+			attemptCount: job.AttemptCount,
+			lockedUntil:  lockedUntil,
+			reason:       reason,
+		})
+		claimed = append(claimed, cloneSyncJob(job))
+	}
+
+	s.mu.Unlock()
+
+	for _, entry := range logs {
+		telemetry.ObserveLeaseClaim(deltaflow.LeaseTelemetryResultSuccess)
+		if entry.reason == "expired_reclaimed" {
+			telemetry.ObserveLeaseReclaim()
+		}
+		s.logLease("lease_claimed",
+			"sync_id", syncID,
+			"job_id", entry.jobID,
+			"worker_id", workerID,
+			"state", entry.state,
+			"attempt_count", entry.attemptCount,
+			"locked_until", entry.lockedUntil,
+			"lease_ms_remaining", int64(lockFor/time.Millisecond),
+			"reason", entry.reason,
+		)
+	}
+
+	return claimed, nil
+}
+
 func (s *JobMemoryStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return err

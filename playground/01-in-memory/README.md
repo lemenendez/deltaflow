@@ -39,3 +39,38 @@ go run .
 ```
 
 The scenario is fixed on purpose so the output is easy to understand in demos.
+
+## Benchmark Mode (v0.9.0 throughput)
+
+This playground now includes a deterministic throughput benchmark that exercises
+the real worker claim path with configurable worker concurrency and batch size.
+
+Run baseline + matrix:
+
+```bash
+cd playground/01-in-memory
+go run . -mode bench
+```
+
+Run with explicit workload and candidate matrix:
+
+```bash
+go run . \
+	-mode bench \
+	-seed 42 \
+	-universe 1000 \
+	-mutations 100000 \
+	-ghost-every 10 \
+	-concurrency 1,2,4,8 \
+	-batch 1,8,16,32
+```
+
+Recommended tuning workflow:
+
+- Keep `seed`, `universe`, and `mutations` fixed.
+- Compare baseline (`concurrency=1`, `batch=1`) against `N x M` pairs.
+- Watch both speedup and correctness counts (`synced`, `dead`, `retrying`, `ghosts`).
+- Record runs in `BENCHMARK_RESULTS.md`.
+
+This first benchmark is intentionally in-memory to iterate quickly before
+running larger Postgres playground measurements.

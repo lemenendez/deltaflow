@@ -85,6 +85,10 @@ func newRunCommand(opts *options) *cobra.Command {
 			if cfg.Workers.PullSize != nil {
 				pullSize = *cfg.Workers.PullSize
 			}
+			batchSize := 1
+			if cfg.Workers.BatchSize != nil {
+				batchSize = *cfg.Workers.BatchSize
+			}
 
 			runtimeCfg := &runtimepkg.BuildConfig{
 				Store: runtimepkg.BuildStoreConfig{
@@ -115,12 +119,14 @@ func newRunCommand(opts *options) *cobra.Command {
 			}
 
 			built, err := runtimepkg.BuildFromConfig(ctx, runtimeCfg, opts.runtimeRegistry, runtimepkg.WorkerDeps{
-				JobStore:   jobStore,
-				Dispatcher: dispatchStore,
-				StoreDB:    db,
-				WorkerID:   workerID,
-				LockFor:    leaseTTL,
-				PullSize:   pullSize,
+				JobStore:    jobStore,
+				Dispatcher:  dispatchStore,
+				StoreDB:     db,
+				WorkerID:    workerID,
+				LockFor:     leaseTTL,
+				PullSize:    pullSize,
+				BatchSize:   batchSize,
+				Concurrency: cfg.Workers.Concurrency,
 			})
 			if err != nil {
 				return err

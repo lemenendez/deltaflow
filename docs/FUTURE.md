@@ -2,6 +2,11 @@
 
 These are future ideas:
 
+Near-term milestone tracking:
+
+- v0.9.0 planned: worker throughput + batching
+- docs: PLAN_v0.9.0.md and RELEASE_NOTES_V0.9.0.md (draft)
+
 ```text
 Multiple targets
 TargetDelivery

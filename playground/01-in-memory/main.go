@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
@@ -16,6 +18,33 @@ type runStats struct {
 }
 
 func main() {
+	mode := flag.String("mode", "demo", "run mode: demo or bench")
+	seed := flag.Int64("seed", 42, "deterministic benchmark seed")
+	universe := flag.Int("universe", 1000, "number of source entities")
+	mutations := flag.Int("mutations", 100000, "number of queued jobs to process")
+	ghostEvery := flag.Int("ghost-every", 10, "every Nth mutation uses a missing source key; 0 disables ghosts")
+	concurrency := flag.String("concurrency", "1,2,4,8", "comma-separated worker concurrency values")
+	batchSize := flag.String("batch", "1,8,16,32", "comma-separated worker batch size values")
+	lockFor := flag.Duration("lock-for", 2*time.Minute, "lease duration for benchmark jobs")
+	flag.Parse()
+
+	if *mode == "bench" {
+		cfg := benchmarkConfig{
+			Seed:         *seed,
+			Universe:     *universe,
+			Mutations:    *mutations,
+			GhostEvery:   *ghostEvery,
+			Concurrency:  *concurrency,
+			BatchSize:    *batchSize,
+			LockFor:      *lockFor,
+			WorkerIDBase: "bench-worker",
+		}
+		if err := runBenchmark(context.Background(), cfg); err != nil {
+			log.Fatalf("benchmark failed: %v", err)
+		}
+		return
+	}
+
 	s := buildDemoScenario()
 	projector := deltaflow.ProjectorFunc(s.source.project)
 	applier := deltaflow.ProjectionApplierFunc(s.target.apply)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -25,6 +26,15 @@ type runStats struct {
 
 func main() {
 	ctx := context.Background()
+	mode := flag.String("mode", "demo", "run mode: demo or bench")
+	seed := flag.Int64("seed", 42, "deterministic benchmark seed")
+	universe := flag.Int("universe", 1000, "number of source entities")
+	mutations := flag.Int("mutations", 50000, "number of deltas/jobs to process")
+	ghostEvery := flag.Int("ghost-every", 10, "every Nth mutation uses a missing source key; 0 disables ghosts")
+	concurrency := flag.String("concurrency", "1,2,4,8", "comma-separated worker concurrency values")
+	batchSize := flag.String("batch", "1,8,16,32", "comma-separated worker batch size values")
+	lockFor := flag.Duration("lock-for", 30*time.Second, "lease duration for benchmark jobs")
+	flag.Parse()
 
 	dsn := os.Getenv("DELTAFLOW_PG_DSN")
 	if dsn == "" {
@@ -39,6 +49,24 @@ func main() {
 
 	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf("ping db: %v", err)
+	}
+	queryDB = db
+
+	if *mode == "bench" {
+		cfg := postgresBenchmarkConfig{
+			Seed:         *seed,
+			Universe:     *universe,
+			Mutations:    *mutations,
+			GhostEvery:   *ghostEvery,
+			Concurrency:  *concurrency,
+			BatchSize:    *batchSize,
+			LockFor:      *lockFor,
+			WorkerIDBase: "playground-02-bench-worker",
+		}
+		if err := runPostgresBenchmark(ctx, db, cfg); err != nil {
+			log.Fatalf("benchmark failed: %v", err)
+		}
+		return
 	}
 
 	deltaStore := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
