@@ -64,9 +64,10 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	go func() {
 		stats, err := hostpkg.RunWorkers(
 			ctx,
-			workerConcurrency,
+			1,
 			func(workerID string) *deltaflow.SyncWorker {
-				worker := hostpkg.MakeWorker(stores, syncID, workerID, projector, scenario.target, 1, workerBatchSize)
+				worker := hostpkg.MakeWorker(stores, syncID, workerID, projector, scenario.target, 0, workerBatchSize)
+				worker.Concurrency = workerConcurrency
 				worker.Logger = fileLogger.Logger
 				return worker
 			},
