@@ -18,7 +18,7 @@ func printReport(result demoResult) {
 	fmt.Printf("- Source universe: seed %d generated %d users, %d customers, and %d normal orders plus 1 poison order.\n", seed, userCount, customerCount, orderCount)
 	fmt.Printf("- Workload size: %d random CRM mutations plus 3 special deltas.\n", mutationCount)
 	fmt.Printf("- %d application-side actors updated durable Postgres CRM rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
-	fmt.Printf("- %d DeltaFlow workers concurrently dispatched, claimed, projected, and applied those jobs from Postgres.\n", workerCount)
+	fmt.Printf("- DeltaFlow workers ran with workers.concurrency=%d and workers.batch_size=%d.\n", workerConcurrency, workerBatchSize)
 	fmt.Println("- Projector reads the latest CRM row and builds user/customer/order projections.")
 	if elasticsearchEndpoint == "" {
 		fmt.Println("- Applier simulates Redis views plus search/order fanout because DELTAFLOW_ES_ENDPOINT is not set.")
@@ -29,10 +29,10 @@ func printReport(result demoResult) {
 
 	fmt.Println("Workload")
 	fmt.Printf("- CRM mutations: %s.\n", formatBreakdown(breakdown))
-	if maxAttempts >= 2 {
+	if workerMaxAttempts >= 2 {
 		fmt.Printf("- %s: simulated one temporary Redis timeout, then retry succeeded.\n", retryCustomerID)
 	} else {
-		fmt.Printf("- %s: simulated one temporary Redis timeout, but MAX_ATTEMPTS=%d marks the job dead immediately.\n", retryCustomerID, maxAttempts)
+		fmt.Printf("- %s: simulated one temporary Redis timeout, but workers.max_attempts=%d marks the job dead immediately.\n", retryCustomerID, workerMaxAttempts)
 	}
 	fmt.Println("- ord-dead-001: simulated permanent target rejection, so the job reached dead-letter after max attempts.")
 	fmt.Println("- cus-ghost-001: stale customer view with no source customer, so DeltaFlow issued a delete.")

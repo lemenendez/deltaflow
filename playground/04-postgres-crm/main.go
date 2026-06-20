@@ -25,8 +25,9 @@ var (
 	orderCount            = 22
 	mutationCount         = 64
 	writerCount           = 4
-	workerCount           = 2
-	maxAttempts           = 3
+	workerConcurrency     = 2
+	workerBatchSize       = 64
+	workerMaxAttempts     = 3
 	elasticsearchEndpoint = ""
 )
 
@@ -81,10 +82,13 @@ func loadConfig() error {
 	if writerCount < 4 {
 		return fmt.Errorf("WRITER_COUNT must be >= 4 for this scenario")
 	}
-	if workerCount, err = hostpkg.EnvInt("WORKER_COUNT", workerCount); err != nil {
+	if workerConcurrency, err = hostpkg.EnvInt("WORKERS_CONCURRENCY", workerConcurrency); err != nil {
 		return err
 	}
-	if maxAttempts, err = hostpkg.EnvInt("MAX_ATTEMPTS", maxAttempts); err != nil {
+	if workerBatchSize, err = hostpkg.EnvInt("WORKERS_BATCH_SIZE", workerBatchSize); err != nil {
+		return err
+	}
+	if workerMaxAttempts, err = hostpkg.EnvInt("WORKERS_MAX_ATTEMPTS", workerMaxAttempts); err != nil {
 		return err
 	}
 	elasticsearchEndpoint = os.Getenv("DELTAFLOW_ES_ENDPOINT")

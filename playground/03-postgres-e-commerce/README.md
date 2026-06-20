@@ -41,13 +41,14 @@ Default simulation size:
 - `PRODUCT_COUNT=14`
 - `MUTATION_COUNT=56`
 - `WRITER_COUNT=4`
-- `WORKER_COUNT=2`
-- `MAX_ATTEMPTS=3`
+- `WORKERS_CONCURRENCY=2`
+- `WORKERS_BATCH_SIZE=64`
+- `WORKERS_MAX_ATTEMPTS=3`
 - `SIM_SEED=3003`
 
 Custom size example:
 
-- `make run PRODUCT_COUNT=100 MUTATION_COUNT=1000 WRITER_COUNT=8 WORKER_COUNT=4`
+- `make run PRODUCT_COUNT=100 MUTATION_COUNT=1000 WRITER_COUNT=8 WORKERS_CONCURRENCY=4 WORKERS_BATCH_SIZE=128`
 
 `PRODUCT_COUNT` changes the source universe. `MUTATION_COUNT` controls how many live writes/deltas/jobs are created. If you only increase `PRODUCT_COUNT`, the run has a larger product pool to choose from but the same number of mutations.
 
