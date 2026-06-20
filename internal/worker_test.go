@@ -973,6 +973,59 @@ func TestSyncWorkerFallsBackToClaimNextWhenBatchClaimsUnavailable(t *testing.T) 
 	}
 }
 
+func TestSyncWorkerRequeuesPartiallyClaimedJobsWhenClaimNextFails(t *testing.T) {
+	ctx := context.Background()
+	claimErr := errors.New("claim failed")
+	jobStore := newClaimNextOnlyJobStoreWithClaimErrorAfter(NewJobMemoryStore(), 2, claimErr)
+
+	job, err := jobStore.inner.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create job returned error: %v", err)
+	}
+
+	worker := SyncWorker{
+		JobStore: jobStore,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:   recordApplier(nil, nil),
+		SyncID:    "sync",
+		WorkerID:  "worker-1",
+		LockFor:   time.Hour,
+		BatchSize: 3,
+	}
+
+	err = worker.RunOnce(ctx)
+	if !errors.Is(err, claimErr) {
+		t.Fatalf("RunOnce error = %v, want %v", err, claimErr)
+	}
+
+	if got := jobStore.claimCount(); got != 2 {
+		t.Fatalf("ClaimNext call count = %d, want 2", got)
+	}
+
+	got := mustGetJob(t, ctx, jobStore.inner, job.ID)
+	if got.State != deltaflow.StateRetrying {
+		t.Fatalf("job state = %s, want %s", got.State, deltaflow.StateRetrying)
+	}
+	if got.AttemptCount != 0 {
+		t.Fatalf("attempt_count = %d, want 0", got.AttemptCount)
+	}
+	if got.LockedBy != nil || got.LockedUntil != nil {
+		t.Fatal("lock was not cleared after claim failure requeue")
+	}
+	if got.LastError == nil || *got.LastError != claimErr.Error() {
+		t.Fatalf("last_error = %v, want %q", got.LastError, claimErr.Error())
+	}
+}
+
 func TestSyncWorkerDerivesDefaultPullSizeFromConcurrencyAndBatchSize(t *testing.T) {
 	ctx := context.Background()
 	jobStore := NewJobMemoryStore()
@@ -1264,9 +1317,11 @@ func recordApplier(applied *[]deltaflow.ProjectionOperation, err error) deltaflo
 }
 
 type claimNextOnlyJobStore struct {
-	inner      *JobMemoryStore
-	mu         sync.Mutex
-	claimCalls int
+	inner           *JobMemoryStore
+	mu              sync.Mutex
+	claimCalls      int
+	claimErrorAfter int
+	claimError      error
 }
 
 type dispatchSpyStore struct {
@@ -1291,6 +1346,10 @@ func newClaimNextOnlyJobStore(inner *JobMemoryStore) *claimNextOnlyJobStore {
 	return &claimNextOnlyJobStore{inner: inner}
 }
 
+func newClaimNextOnlyJobStoreWithClaimErrorAfter(inner *JobMemoryStore, claimErrorAfter int, claimError error) *claimNextOnlyJobStore {
+	return &claimNextOnlyJobStore{inner: inner, claimErrorAfter: claimErrorAfter, claimError: claimError}
+}
+
 func (s *claimNextOnlyJobStore) Create(ctx context.Context, job deltaflow.SyncJob) (*deltaflow.SyncJob, error) {
 	return s.inner.Create(ctx, job)
 }
@@ -1302,7 +1361,13 @@ func (s *claimNextOnlyJobStore) Get(ctx context.Context, jobID deltaflow.SyncJob
 func (s *claimNextOnlyJobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
 	s.mu.Lock()
 	s.claimCalls++
+	claimCalls := s.claimCalls
+	claimErrorAfter := s.claimErrorAfter
+	claimError := s.claimError
 	s.mu.Unlock()
+	if claimError != nil && claimErrorAfter > 0 && claimCalls >= claimErrorAfter {
+		return nil, claimError
+	}
 	return s.inner.ClaimNext(ctx, syncID, workerID, lockFor)
 }
 

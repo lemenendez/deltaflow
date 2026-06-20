@@ -248,6 +248,7 @@ func (w *SyncWorker) claimBatch(ctx context.Context, workerID string, batchSize 
 	for i := 0; i < batchSize; i++ {
 		job, err := w.JobStore.ClaimNext(ctx, w.SyncID, workerID, w.LockFor)
 		if err != nil {
+			w.requeueClaimedJobs(ctx, workerID, jobs, err)
 			return nil, err
 		}
 		if job == nil {
