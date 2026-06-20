@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const workerFinalizeTimeout = 2 * time.Second
+
 // SyncWorkerConfig contains the required runtime identity for a SyncWorker.
 type SyncWorkerConfig struct {
 	SyncID      SyncID
@@ -116,10 +118,7 @@ func (w *SyncWorker) dispatchDeltas(ctx context.Context) error {
 		return err
 	}
 
-	pullSize := w.PullSize
-	if pullSize <= 0 {
-		pullSize = 1
-	}
+	pullSize := w.effectivePullSize()
 	if w.Dispatcher == nil {
 		return nil
 	}
@@ -151,11 +150,13 @@ func (w *SyncWorker) processBatch(ctx context.Context, workerID string, batchSiz
 		return nil
 	}
 
-	for _, job := range jobs {
+	for i, job := range jobs {
 		if err := ctx.Err(); err != nil {
+			w.requeueClaimedJobs(ctx, workerID, jobs[i:], err)
 			return err
 		}
 		if err := w.processJob(ctx, workerID, job); err != nil {
+			w.requeueClaimedJobs(ctx, workerID, jobs[i+1:], err)
 			return err
 		}
 	}
@@ -202,7 +203,7 @@ func (w *SyncWorker) processJob(ctx context.Context, workerID string, job *SyncJ
 			return w.failOrRetryWithWorker(ctx, job, workerID, heartbeatErr)
 		}
 
-		return w.JobStore.MarkSynced(ctx, job.ID, workerID, true)
+		return w.markSynced(ctx, job.ID, workerID, true)
 	}
 
 	if err != nil {
@@ -228,7 +229,7 @@ func (w *SyncWorker) processJob(ctx context.Context, workerID string, job *SyncJ
 		return w.failOrRetryWithWorker(ctx, job, workerID, heartbeatErr)
 	}
 
-	return w.JobStore.MarkSynced(ctx, job.ID, workerID, false)
+	return w.markSynced(ctx, job.ID, workerID, false)
 }
 
 func (w *SyncWorker) claimBatch(ctx context.Context, workerID string, batchSize int) ([]*SyncJob, error) {
@@ -256,13 +257,44 @@ func (w *SyncWorker) failOrRetry(ctx context.Context, job *SyncJob, err error) e
 
 func (w *SyncWorker) failOrRetryWithWorker(ctx context.Context, job *SyncJob, workerID string, err error) error {
 	nextAttempt := job.AttemptCount + 1
+	finalizeCtx, cancel := w.finalizeContext(ctx)
+	defer cancel()
 
 	if nextAttempt >= job.MaxAttempts {
-		return w.JobStore.MarkDead(ctx, job.ID, workerID, err)
+		return w.JobStore.MarkDead(finalizeCtx, job.ID, workerID, err)
 	}
 
 	nextRunAt := time.Now().UTC().Add(workerBackoff(nextAttempt))
-	return w.JobStore.MarkRetrying(ctx, job.ID, workerID, err, nextRunAt)
+	return w.JobStore.MarkRetrying(finalizeCtx, job.ID, workerID, err, nextRunAt)
+}
+
+func (w *SyncWorker) markSynced(ctx context.Context, jobID SyncJobID, workerID string, ghostDetected bool) error {
+	finalizeCtx, cancel := w.finalizeContext(ctx)
+	defer cancel()
+	return w.JobStore.MarkSynced(finalizeCtx, jobID, workerID, ghostDetected)
+}
+
+func (w *SyncWorker) requeueClaimedJobs(ctx context.Context, workerID string, jobs []*SyncJob, reason error) {
+	if len(jobs) == 0 {
+		return
+	}
+	finalizeCtx, cancel := w.finalizeContext(ctx)
+	defer cancel()
+	nextRunAt := time.Now().UTC()
+	for _, job := range jobs {
+		if err := w.JobStore.MarkRetrying(finalizeCtx, job.ID, workerID, reason, nextRunAt); err != nil {
+			w.logLease("worker_requeue_claimed_failed",
+				"sync_id", w.SyncID,
+				"job_id", job.ID,
+				"worker_id", workerID,
+				"error", err.Error(),
+			)
+		}
+	}
+}
+
+func (w *SyncWorker) finalizeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), workerFinalizeTimeout)
 }
 
 func (w *SyncWorker) heartbeatLease(ctx context.Context, cancel context.CancelFunc, jobID SyncJobID, errCh chan<- error) {
@@ -330,6 +362,13 @@ func (w *SyncWorker) effectiveConcurrency() int {
 		return 1
 	}
 	return w.Concurrency
+}
+
+func (w *SyncWorker) effectivePullSize() int {
+	if w.PullSize > 0 {
+		return w.PullSize
+	}
+	return w.effectiveConcurrency() * w.effectiveBatchSize()
 }
 
 func (w *SyncWorker) WorkerIDForRoutine(routine int) string {

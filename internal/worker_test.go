@@ -973,6 +973,138 @@ func TestSyncWorkerFallsBackToClaimNextWhenBatchClaimsUnavailable(t *testing.T) 
 	}
 }
 
+func TestSyncWorkerDerivesDefaultPullSizeFromConcurrencyAndBatchSize(t *testing.T) {
+	ctx := context.Background()
+	jobStore := NewJobMemoryStore()
+	dispatcher := &dispatchSpyStore{}
+
+	worker := SyncWorker{
+		JobStore:   jobStore,
+		Dispatcher: dispatcher,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:     recordApplier(nil, nil),
+		SyncID:      "sync",
+		WorkerID:    "worker-1",
+		LockFor:     time.Hour,
+		BatchSize:   4,
+		Concurrency: 3,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	if got := dispatcher.lastLimit(); got != 12 {
+		t.Fatalf("DispatchPending limit = %d, want 12", got)
+	}
+}
+
+func TestSyncWorkerUsesExplicitPullSizeOverDerivedDefault(t *testing.T) {
+	ctx := context.Background()
+	jobStore := NewJobMemoryStore()
+	dispatcher := &dispatchSpyStore{}
+
+	worker := SyncWorker{
+		JobStore:   jobStore,
+		Dispatcher: dispatcher,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:     recordApplier(nil, nil),
+		SyncID:      "sync",
+		WorkerID:    "worker-1",
+		LockFor:     time.Hour,
+		PullSize:    7,
+		BatchSize:   10,
+		Concurrency: 10,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	if got := dispatcher.lastLimit(); got != 7 {
+		t.Fatalf("DispatchPending limit = %d, want 7", got)
+	}
+}
+
+func TestSyncWorkerCancellationRequeuesUnprocessedClaimedJobs(t *testing.T) {
+	baseCtx := context.Background()
+	ctx, cancel := context.WithCancel(baseCtx)
+	defer cancel()
+
+	jobStore := NewJobMemoryStore()
+
+	firstJob, err := jobStore.Create(baseCtx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create first job returned error: %v", err)
+	}
+	secondJob, err := jobStore.Create(baseCtx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create second job returned error: %v", err)
+	}
+
+	var applyCalls int
+	worker := SyncWorker{
+		JobStore: jobStore,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			applyCalls++
+			if applyCalls == 1 {
+				cancel()
+			}
+			return nil
+		}),
+		SyncID:    "sync",
+		WorkerID:  "worker-1",
+		LockFor:   time.Hour,
+		BatchSize: 2,
+	}
+
+	err = worker.RunOnce(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunOnce error = %v, want context canceled", err)
+	}
+
+	if applyCalls != 1 {
+		t.Fatalf("apply call count = %d, want 1", applyCalls)
+	}
+
+	states := map[deltaflow.SyncJobState]int{}
+	for _, id := range []deltaflow.SyncJobID{firstJob.ID, secondJob.ID} {
+		got := mustGetJob(t, baseCtx, jobStore, id)
+		states[got.State]++
+		if got.State == deltaflow.StateProcessing {
+			t.Fatalf("job %s remained in processing after cancellation", id)
+		}
+	}
+
+	if states[deltaflow.StateSynced] != 1 {
+		t.Fatalf("synced jobs = %d, want 1", states[deltaflow.StateSynced])
+	}
+	if states[deltaflow.StateRetrying] != 1 {
+		t.Fatalf("retrying jobs = %d, want 1", states[deltaflow.StateRetrying])
+	}
+}
+
 type renewLeaseSpyJobStore struct {
 	inner        deltaflow.JobStore
 	mu           sync.Mutex
@@ -1128,6 +1260,24 @@ type claimNextOnlyJobStore struct {
 	inner      *JobMemoryStore
 	mu         sync.Mutex
 	claimCalls int
+}
+
+type dispatchSpyStore struct {
+	mu    sync.Mutex
+	limit int
+}
+
+func (s *dispatchSpyStore) DispatchPending(ctx context.Context, syncID deltaflow.SyncID, limit int) ([]*deltaflow.SyncJob, error) {
+	s.mu.Lock()
+	s.limit = limit
+	s.mu.Unlock()
+	return nil, nil
+}
+
+func (s *dispatchSpyStore) lastLimit() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.limit
 }
 
 func newClaimNextOnlyJobStore(inner *JobMemoryStore) *claimNextOnlyJobStore {
