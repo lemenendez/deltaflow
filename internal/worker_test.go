@@ -1161,6 +1161,103 @@ func TestSyncWorkerCancellationRequeuesUnprocessedClaimedJobs(t *testing.T) {
 	}
 }
 
+func TestSyncWorkerRequeuesAllRemainingJobsWithSlowRequeueCalls(t *testing.T) {
+	baseCtx := context.Background()
+	ctx, cancel := context.WithCancel(baseCtx)
+	defer cancel()
+	baseStore := NewJobMemoryStore()
+	jobStore := newSlowRequeueJobStore(baseStore, []time.Duration{1900 * time.Millisecond, 300 * time.Millisecond})
+
+	firstJob, err := baseStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create first job returned error: %v", err)
+	}
+	secondJob, err := baseStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create second job returned error: %v", err)
+	}
+	thirdJob, err := baseStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"3"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create third job returned error: %v", err)
+	}
+
+	applyCalls := 0
+	worker := SyncWorker{
+		JobStore: jobStore,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			applyCalls++
+			if applyCalls == 1 {
+				cancel()
+			}
+			return nil
+		}),
+		SyncID:    "sync",
+		WorkerID:  "worker-1",
+		LockFor:   time.Hour,
+		BatchSize: 3,
+	}
+
+	err = worker.RunOnce(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunOnce error = %v, want context canceled", err)
+	}
+
+	if applyCalls != 1 {
+		t.Fatalf("apply call count = %d, want 1", applyCalls)
+	}
+	if got := jobStore.requeueCount(); got != 2 {
+		t.Fatalf("RequeueClaimed call count = %d, want 2", got)
+	}
+
+	firstGot := mustGetJob(t, baseCtx, baseStore, firstJob.ID)
+	if firstGot.State != deltaflow.StateSynced {
+		t.Fatalf("first job state = %s, want %s", firstGot.State, deltaflow.StateSynced)
+	}
+	if firstGot.AttemptCount != 0 {
+		t.Fatalf("first job attempt_count = %d, want 0", firstGot.AttemptCount)
+	}
+
+	for _, id := range []deltaflow.SyncJobID{secondJob.ID, thirdJob.ID} {
+		got := mustGetJob(t, baseCtx, baseStore, id)
+		if got.State != deltaflow.StateRetrying {
+			t.Fatalf("job %s state = %s, want %s", id, got.State, deltaflow.StateRetrying)
+		}
+		if got.AttemptCount != 0 {
+			t.Fatalf("job %s attempt_count = %d, want 0", id, got.AttemptCount)
+		}
+		if got.LockedBy != nil || got.LockedUntil != nil {
+			t.Fatalf("job %s lock was not cleared after requeue", id)
+		}
+		if got.LastError == nil || *got.LastError != context.Canceled.Error() {
+			t.Fatalf("job %s last_error = %v, want %q", id, got.LastError, context.Canceled.Error())
+		}
+	}
+}
+
 type renewLeaseSpyJobStore struct {
 	inner        deltaflow.JobStore
 	mu           sync.Mutex
@@ -1168,6 +1265,13 @@ type renewLeaseSpyJobStore struct {
 	renewErr     error
 	renewedCh    chan struct{}
 	renewedOnce  sync.Once
+}
+
+type slowRequeueJobStore struct {
+	inner        *JobMemoryStore
+	delays       []time.Duration
+	mu           sync.Mutex
+	requeueCalls int
 }
 
 func newRenewLeaseSpyJobStore(inner deltaflow.JobStore) *renewLeaseSpyJobStore {
@@ -1181,6 +1285,76 @@ func newRenewLeaseSpyJobStoreWithError(inner deltaflow.JobStore, renewErr error)
 	store := newRenewLeaseSpyJobStore(inner)
 	store.renewErr = renewErr
 	return store
+}
+
+func newSlowRequeueJobStore(inner *JobMemoryStore, delays []time.Duration) *slowRequeueJobStore {
+	copiedDelays := append([]time.Duration(nil), delays...)
+	return &slowRequeueJobStore{inner: inner, delays: copiedDelays}
+}
+
+func (s *slowRequeueJobStore) Create(ctx context.Context, job deltaflow.SyncJob) (*deltaflow.SyncJob, error) {
+	return s.inner.Create(ctx, job)
+}
+
+func (s *slowRequeueJobStore) Get(ctx context.Context, jobID deltaflow.SyncJobID) (*deltaflow.SyncJob, bool, error) {
+	return s.inner.Get(ctx, jobID)
+}
+
+func (s *slowRequeueJobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
+	return s.inner.ClaimNext(ctx, syncID, workerID, lockFor)
+}
+
+func (s *slowRequeueJobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, workerID string, limit int, lockFor time.Duration) ([]*deltaflow.SyncJob, error) {
+	return s.inner.ClaimNextBatch(ctx, syncID, workerID, limit, lockFor)
+}
+
+func (s *slowRequeueJobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
+	return s.inner.RenewLease(ctx, jobID, workerID, lockFor)
+}
+
+func (s *slowRequeueJobStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, ghostDetected bool) error {
+	return s.inner.MarkSynced(ctx, jobID, workerID, ghostDetected)
+}
+
+func (s *slowRequeueJobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
+	return s.inner.MarkRetrying(ctx, jobID, workerID, err, nextRunAt)
+}
+
+func (s *slowRequeueJobStore) RequeueClaimed(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, reason error, nextRunAt time.Time) error {
+	s.mu.Lock()
+	s.requeueCalls++
+	call := s.requeueCalls
+	delay := time.Duration(0)
+	if n := len(s.delays); n > 0 {
+		idx := call - 1
+		if idx >= n {
+			idx = n - 1
+		}
+		delay = s.delays[idx]
+	}
+	s.mu.Unlock()
+
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return s.inner.RequeueClaimed(ctx, jobID, workerID, reason, nextRunAt)
+}
+
+func (s *slowRequeueJobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
+	return s.inner.MarkDead(ctx, jobID, workerID, err)
+}
+
+func (s *slowRequeueJobStore) requeueCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.requeueCalls
 }
 
 func (s *renewLeaseSpyJobStore) Create(ctx context.Context, job deltaflow.SyncJob) (*deltaflow.SyncJob, error) {

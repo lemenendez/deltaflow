@@ -150,10 +150,6 @@ func (w *SyncWorker) processBatch(ctx context.Context, workerID string, batchSiz
 		return err
 	}
 	if len(jobs) == 0 {
-		w.logLease("worker_claim_empty",
-			"sync_id", w.SyncID,
-			"worker_id", workerID,
-		)
 		return nil
 	}
 
@@ -286,10 +282,9 @@ func (w *SyncWorker) requeueClaimedJobs(ctx context.Context, workerID string, jo
 	if len(jobs) == 0 {
 		return
 	}
-	finalizeCtx, cancel := w.finalizeContext(ctx)
-	defer cancel()
 	nextRunAt := time.Now().UTC()
 	for _, job := range jobs {
+		finalizeCtx, cancel := w.finalizeContext(ctx)
 		if err := w.JobStore.RequeueClaimed(finalizeCtx, job.ID, workerID, reason, nextRunAt); err != nil {
 			w.logLease("worker_requeue_claimed_failed",
 				"sync_id", w.SyncID,
@@ -298,6 +293,7 @@ func (w *SyncWorker) requeueClaimedJobs(ctx context.Context, workerID string, jo
 				"error", err.Error(),
 			)
 		}
+		cancel()
 	}
 }
 
