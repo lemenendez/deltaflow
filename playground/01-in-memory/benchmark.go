@@ -498,6 +498,33 @@ func (s *benchJobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJo
 	return nil
 }
 
+func (s *benchJobStore) RequeueClaimed(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, reason error, nextRunAt time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok := s.jobs[jobID]
+	if !ok {
+		return deltaflow.ErrJobNotFound
+	}
+	if !leaseOwnedBy(job, workerID, s.now()) {
+		return deltaflow.ErrJobLeaseNotOwned
+	}
+	now := s.now()
+	job.State = deltaflow.StateRetrying
+	job.AvailableAt = nextRunAt.UTC()
+	msg := ""
+	if reason != nil {
+		msg = reason.Error()
+	}
+	job.LastError = &msg
+	job.LockedBy = nil
+	job.LockedUntil = nil
+	job.UpdatedAt = now
+	return nil
+}
+
 func (s *benchJobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
 	if err := ctx.Err(); err != nil {
 		return err

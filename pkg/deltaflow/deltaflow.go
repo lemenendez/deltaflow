@@ -133,6 +133,10 @@ type JobStore interface {
 
 	MarkRetrying(ctx context.Context, jobID SyncJobID, workerID string, err error, nextRunAt time.Time) error
 
+	// RequeueClaimed releases a currently-owned processing lease and moves the job
+	// back to retrying without incrementing attempt_count.
+	RequeueClaimed(ctx context.Context, jobID SyncJobID, workerID string, reason error, nextRunAt time.Time) error
+
 	MarkDead(ctx context.Context, jobID SyncJobID, workerID string, err error) error
 }
 

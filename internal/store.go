@@ -693,6 +693,15 @@ func (s *JobMemoryStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJ
 	})
 }
 
+func (s *JobMemoryStore) RequeueClaimed(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, reason error, nextRunAt time.Time) error {
+	return s.updateOwned(ctx, jobID, workerID, deltaflow.LeaseTelemetryTransitionRequeueClaimed, func(job *deltaflow.SyncJob, now time.Time) {
+		job.State = deltaflow.StateRetrying
+		job.LastError = stringPtr(errorMessage(reason))
+		job.AvailableAt = nextRunAt.UTC()
+		clearJobLock(job)
+	})
+}
+
 func (s *JobMemoryStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
 	return s.updateOwned(ctx, jobID, workerID, deltaflow.LeaseTelemetryTransitionMarkDead, func(job *deltaflow.SyncJob, now time.Time) {
 		job.State = deltaflow.StateDead

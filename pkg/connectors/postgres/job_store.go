@@ -986,6 +986,33 @@ WHERE id = $1::uuid
 	return nil
 }
 
+func (s *JobStore) RequeueClaimed(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, reason error, nextRunAt time.Time) error {
+	now := s.Now()
+	msg := connectors.ErrorMessage(reason)
+	updated, updateErr := s.updateAndReturn(ctx, jobID, `
+UPDATE deltaflow.deltaflow_sync_jobs
+SET
+	state = 'retrying',
+	last_error = $2,
+	available_at = $3,
+	locked_by = NULL,
+	locked_until = NULL,
+	updated_at = $4
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND locked_by = $5
+	AND locked_until > $4`+syncJobReturningColumns, msg, nextRunAt.UTC(), now, workerID)
+	s.observeOwnershipResult(deltaflow.LeaseTelemetryTransitionRequeueClaimed, updateErr)
+	if updateErr != nil {
+		s.logLeaseTransitionRejected(ctx, deltaflow.LeaseTelemetryTransitionRequeueClaimed, jobID, workerID, updateErr, now)
+		return updateErr
+	}
+	s.logLeaseTransitionApplied(deltaflow.LeaseTelemetryTransitionRequeueClaimed, updated, workerID, now,
+		"reason", msg,
+	)
+	return nil
+}
+
 func (s *JobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
 	now := s.Now()
 	msg := connectors.ErrorMessage(err)

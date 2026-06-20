@@ -1095,6 +1095,9 @@ func TestSyncWorkerCancellationRequeuesUnprocessedClaimedJobs(t *testing.T) {
 		if got.State == deltaflow.StateProcessing {
 			t.Fatalf("job %s remained in processing after cancellation", id)
 		}
+		if got.State == deltaflow.StateRetrying && got.AttemptCount != 0 {
+			t.Fatalf("requeued attempt_count = %d, want 0", got.AttemptCount)
+		}
 	}
 
 	if states[deltaflow.StateSynced] != 1 {
@@ -1156,6 +1159,10 @@ func (s *renewLeaseSpyJobStore) MarkSynced(ctx context.Context, jobID deltaflow.
 
 func (s *renewLeaseSpyJobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
 	return s.inner.MarkRetrying(ctx, jobID, workerID, err, nextRunAt)
+}
+
+func (s *renewLeaseSpyJobStore) RequeueClaimed(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, reason error, nextRunAt time.Time) error {
+	return s.inner.RequeueClaimed(ctx, jobID, workerID, reason, nextRunAt)
 }
 
 func (s *renewLeaseSpyJobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
@@ -1309,6 +1316,10 @@ func (s *claimNextOnlyJobStore) MarkSynced(ctx context.Context, jobID deltaflow.
 
 func (s *claimNextOnlyJobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
 	return s.inner.MarkRetrying(ctx, jobID, workerID, err, nextRunAt)
+}
+
+func (s *claimNextOnlyJobStore) RequeueClaimed(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, reason error, nextRunAt time.Time) error {
+	return s.inner.RequeueClaimed(ctx, jobID, workerID, reason, nextRunAt)
 }
 
 func (s *claimNextOnlyJobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {

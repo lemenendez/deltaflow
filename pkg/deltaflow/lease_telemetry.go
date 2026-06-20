@@ -13,10 +13,11 @@ const (
 	LeaseTelemetryOwnershipOwned    = "owned"
 	LeaseTelemetryOwnershipRejected = "rejected"
 
-	LeaseTelemetryTransitionRenewLease   = "renew_lease"
-	LeaseTelemetryTransitionMarkSynced   = "mark_synced"
-	LeaseTelemetryTransitionMarkRetrying = "mark_retrying"
-	LeaseTelemetryTransitionMarkDead     = "mark_dead"
+	LeaseTelemetryTransitionRenewLease     = "renew_lease"
+	LeaseTelemetryTransitionMarkSynced     = "mark_synced"
+	LeaseTelemetryTransitionMarkRetrying   = "mark_retrying"
+	LeaseTelemetryTransitionRequeueClaimed = "requeue_claimed"
+	LeaseTelemetryTransitionMarkDead       = "mark_dead"
 )
 
 // LeaseTelemetry captures low-cardinality lease signals for metrics exporters.

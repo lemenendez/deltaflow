@@ -855,6 +855,53 @@ func TestJobMemoryStoreOperatorLeaseActions(t *testing.T) {
 	}
 }
 
+func TestJobMemoryStoreRequeueClaimedPreservesAttemptCount(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	worker := "worker-1"
+	lockedUntil := now.Add(time.Minute)
+	store.jobs["job-1"] = &deltaflow.SyncJob{
+		ID:           "job-1",
+		SyncID:       "sync",
+		Origin:       deltaflow.JobOriginManual,
+		State:        deltaflow.StateProcessing,
+		AttemptCount: 2,
+		LockedBy:     &worker,
+		LockedUntil:  &lockedUntil,
+		AvailableAt:  now.Add(-time.Minute),
+		CreatedAt:    now.Add(-2 * time.Minute),
+		UpdatedAt:    now.Add(-time.Minute),
+	}
+
+	nextRunAt := now.Add(30 * time.Second)
+	if err := store.RequeueClaimed(ctx, "job-1", worker, errors.New("batch canceled"), nextRunAt); err != nil {
+		t.Fatalf("RequeueClaimed returned error: %v", err)
+	}
+
+	got, ok, err := store.Get(ctx, "job-1")
+	if err != nil || !ok {
+		t.Fatalf("Get after RequeueClaimed = ok=%v err=%v", ok, err)
+	}
+	if got.State != deltaflow.StateRetrying {
+		t.Fatalf("state = %s, want %s", got.State, deltaflow.StateRetrying)
+	}
+	if got.AttemptCount != 2 {
+		t.Fatalf("attempt_count = %d, want 2", got.AttemptCount)
+	}
+	if !got.AvailableAt.Equal(nextRunAt) {
+		t.Fatalf("available_at = %v, want %v", got.AvailableAt, nextRunAt)
+	}
+	if got.LastError == nil || *got.LastError != "batch canceled" {
+		t.Fatalf("last_error = %v, want %q", got.LastError, "batch canceled")
+	}
+	if got.LockedBy != nil || got.LockedUntil != nil {
+		t.Fatal("lock was not cleared after RequeueClaimed")
+	}
+}
+
 func TestJobMemoryStoreCreateRejectsOutboxJobWithoutDeltaID(t *testing.T) {
 	ctx := context.Background()
 	store := NewJobMemoryStore()

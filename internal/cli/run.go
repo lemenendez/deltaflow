@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lemenendez/deltaflow/internal/config"
 	"github.com/lemenendez/deltaflow/pkg/connectors"
 	pgstore "github.com/lemenendez/deltaflow/pkg/connectors/postgres"
 	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
@@ -81,14 +82,7 @@ func newRunCommand(opts *options) *cobra.Command {
 			jobStore := pgstore.NewJobStore(db, jobCfg)
 			dispatchStore := pgstore.NewDispatchStore(deltaStore, jobStore, pgstore.DispatchStoreConfig{})
 
-			pullSize := 1
-			if cfg.Workers.PullSize != nil {
-				pullSize = *cfg.Workers.PullSize
-			}
-			batchSize := 1
-			if cfg.Workers.BatchSize != nil {
-				batchSize = *cfg.Workers.BatchSize
-			}
+			pullSize, batchSize := workerSizing(cfg.Workers)
 
 			runtimeCfg := &runtimepkg.BuildConfig{
 				Store: runtimepkg.BuildStoreConfig{
@@ -144,4 +138,19 @@ func newRunCommand(opts *options) *cobra.Command {
 	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker identity for lease ownership")
 
 	return cmd
+}
+
+func workerSizing(workers config.WorkersConfig) (pullSize int, batchSize int) {
+	// Keep pull size unset unless explicitly configured so SyncWorker can derive it.
+	pullSize = 0
+	if workers.PullSize != nil {
+		pullSize = *workers.PullSize
+	}
+
+	batchSize = 1
+	if workers.BatchSize != nil {
+		batchSize = *workers.BatchSize
+	}
+
+	return pullSize, batchSize
 }

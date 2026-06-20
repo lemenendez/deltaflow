@@ -282,7 +282,7 @@ func (w *SyncWorker) requeueClaimedJobs(ctx context.Context, workerID string, jo
 	defer cancel()
 	nextRunAt := time.Now().UTC()
 	for _, job := range jobs {
-		if err := w.JobStore.MarkRetrying(finalizeCtx, job.ID, workerID, reason, nextRunAt); err != nil {
+		if err := w.JobStore.RequeueClaimed(finalizeCtx, job.ID, workerID, reason, nextRunAt); err != nil {
 			w.logLease("worker_requeue_claimed_failed",
 				"sync_id", w.SyncID,
 				"job_id", job.ID,
