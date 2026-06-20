@@ -37,6 +37,11 @@ func (c SyncWorkerConfig) Validate() error {
 
 // SyncWorker dispatches pending deltas, claims jobs for one worker cycle,
 // projects latest state, applies resulting operations, and records outcomes.
+//
+// Concurrency contract:
+// When Concurrency > 1, RunOnce processes jobs from multiple goroutines.
+// Projector.Project and ProjectionApplier.Apply can therefore be invoked
+// concurrently and must be safe for concurrent use (or wrapped externally).
 type SyncWorker struct {
 	JobStore   JobStore
 	Dispatcher DispatchStore
@@ -53,7 +58,9 @@ type SyncWorker struct {
 }
 
 // RunOnce dispatches pending deltas and processes one worker cycle.
-// Each cycle can run with configurable concurrency and per-routine batch claims.
+// Each cycle can run with configurable concurrency and per-goroutine batch claims.
+// If Concurrency > 1, multiple goroutines may call Projector.Project and
+// ProjectionApplier.Apply at the same time.
 func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	if err := w.validateRunOnceDependencies(); err != nil {
 		return err

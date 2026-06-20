@@ -63,8 +63,8 @@ and duplicate names fail fast.
 
 Worker sizing notes for `run`:
 
-- `workers.concurrency` controls how many routines process jobs per pipeline cycle.
-- `workers.batch_size` controls how many jobs each routine can claim per cycle.
+- `workers.concurrency` controls how many goroutines process jobs per pipeline cycle.
+- `workers.batch_size` controls how many jobs each goroutine can claim per cycle.
 - `workers.pull_size` is optional. When omitted, the worker derives dispatch pull size as `concurrency * batch_size`.
 - Set `workers.pull_size` explicitly only when you need tighter or looser dispatch limits than the derived default.
 

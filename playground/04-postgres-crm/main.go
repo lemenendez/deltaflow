@@ -85,11 +85,20 @@ func loadConfig() error {
 	if workerConcurrency, err = hostpkg.EnvInt("WORKERS_CONCURRENCY", workerConcurrency); err != nil {
 		return err
 	}
+	if workerConcurrency <= 0 {
+		return fmt.Errorf("WORKERS_CONCURRENCY must be > 0")
+	}
 	if workerBatchSize, err = hostpkg.EnvInt("WORKERS_BATCH_SIZE", workerBatchSize); err != nil {
 		return err
 	}
+	if workerBatchSize <= 0 {
+		return fmt.Errorf("WORKERS_BATCH_SIZE must be > 0")
+	}
 	if workerMaxAttempts, err = hostpkg.EnvInt("WORKERS_MAX_ATTEMPTS", workerMaxAttempts); err != nil {
 		return err
+	}
+	if workerMaxAttempts <= 0 {
+		return fmt.Errorf("WORKERS_MAX_ATTEMPTS must be > 0")
 	}
 	elasticsearchEndpoint = os.Getenv("DELTAFLOW_ES_ENDPOINT")
 	return nil

@@ -199,6 +199,9 @@ type jobStateCounts struct {
 
 func queryJobStateCounts(ctx context.Context, syncID deltaflow.SyncID) (jobStateCounts, error) {
 	counts := jobStateCounts{}
+	if queryDB == nil {
+		return jobStateCounts{}, errors.New("benchmark query database is not configured")
+	}
 	row := queryDB.QueryRowContext(ctx, `
 SELECT
 	COUNT(*) FILTER (WHERE state = 'synced') AS synced_count,
