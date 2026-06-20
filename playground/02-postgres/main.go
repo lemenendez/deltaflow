@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -120,7 +121,7 @@ func runWorkerLoop(
 		stats.Enqueued++
 	}
 
-	// For this fixed demo, each RunOnce processes at most one claimed job.
+	// This demo uses the default one-job-per-cycle worker settings.
 	// Running exactly len(deltas) times keeps the example clean and deterministic.
 	for i := 0; i < len(scenario.deltas); i++ {
 		if err := worker.RunOnce(ctx); err != nil {
@@ -129,9 +130,8 @@ func runWorkerLoop(
 		stats.WorkerRuns++
 	}
 
-	stats.Upserts = applier.upserts
-	stats.Deletes = applier.deletes
-	stats.Ghosts = projector.ghostDeletes
+	stats.Upserts, stats.Deletes = applier.Snapshot()
+	stats.Ghosts = projector.Snapshot()
 
 	return stats, nil
 }
@@ -146,19 +146,29 @@ func attachRunScopedSyncID(scenario *contactSyncScenario) deltaflow.SyncID {
 
 type countingProjector struct {
 	projectFn    func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error)
+	mu           sync.Mutex
 	ghostDeletes int
 }
 
 func (p *countingProjector) Project(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
 	projection, err := p.projectFn(ctx, identity)
 	if errors.Is(err, deltaflow.ErrProjectionNotFound) {
+		p.mu.Lock()
 		p.ghostDeletes++
+		p.mu.Unlock()
 	}
 	return projection, err
 }
 
+func (p *countingProjector) Snapshot() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ghostDeletes
+}
+
 type countingApplier struct {
 	applyFn func(context.Context, deltaflow.ProjectionOperation) error
+	mu      sync.Mutex
 	upserts int
 	deletes int
 }
@@ -170,10 +180,20 @@ func (a *countingApplier) Apply(ctx context.Context, op deltaflow.ProjectionOper
 
 	switch op.Type {
 	case deltaflow.ProjectionOpUpsert:
+		a.mu.Lock()
 		a.upserts++
+		a.mu.Unlock()
 	case deltaflow.ProjectionOpDelete:
+		a.mu.Lock()
 		a.deletes++
+		a.mu.Unlock()
 	}
 
 	return nil
+}
+
+func (a *countingApplier) Snapshot() (int, int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.upserts, a.deletes
 }

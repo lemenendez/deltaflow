@@ -33,8 +33,8 @@ func (c SyncWorkerConfig) Validate() error {
 	return nil
 }
 
-// SyncWorker dispatches pending deltas, claims one sync job, projects the
-// latest state, applies the resulting operation, and records the outcome.
+// SyncWorker dispatches pending deltas, claims jobs for one worker cycle,
+// projects latest state, applies resulting operations, and records outcomes.
 type SyncWorker struct {
 	JobStore   JobStore
 	Dispatcher DispatchStore

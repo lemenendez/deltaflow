@@ -187,7 +187,7 @@ func runPostgresBenchmarkCase(
 		Synced:      counts.Synced,
 		Dead:        counts.Dead,
 		Retrying:    counts.Retrying,
-		Ghosts:      projector.ghostDeletes,
+		Ghosts:      projector.Snapshot(),
 	}, nil
 }
 

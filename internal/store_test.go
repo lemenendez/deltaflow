@@ -397,6 +397,78 @@ func TestJobMemoryStoreClaimNextRespectsAvailabilityAndLease(t *testing.T) {
 	}
 }
 
+func TestJobMemoryStoreClaimNextBatchRespectsLimitAndOrder(t *testing.T) {
+	ctx := context.Background()
+	store := NewJobMemoryStore()
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	first, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		State:          deltaflow.StatePending,
+		AvailableAt:    now.Add(-3 * time.Minute),
+		CreatedAt:      now.Add(-3 * time.Minute),
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create first returned error: %v", err)
+	}
+	second, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		State:          deltaflow.StatePending,
+		AvailableAt:    now.Add(-2 * time.Minute),
+		CreatedAt:      now.Add(-2 * time.Minute),
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create second returned error: %v", err)
+	}
+	third, err := store.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		State:          deltaflow.StatePending,
+		AvailableAt:    now.Add(-1 * time.Minute),
+		CreatedAt:      now.Add(-1 * time.Minute),
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"3"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create third returned error: %v", err)
+	}
+
+	claimed, err := store.ClaimNextBatch(ctx, "sync", "worker-1", 2, time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNextBatch returned error: %v", err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("ClaimNextBatch len = %d, want 2", len(claimed))
+	}
+	if claimed[0].ID != first.ID || claimed[1].ID != second.ID {
+		t.Fatalf("ClaimNextBatch order = [%s, %s], want [%s, %s]", claimed[0].ID, claimed[1].ID, first.ID, second.ID)
+	}
+
+	next, err := store.ClaimNextBatch(ctx, "sync", "worker-2", 2, time.Minute)
+	if err != nil {
+		t.Fatalf("second ClaimNextBatch returned error: %v", err)
+	}
+	if len(next) != 1 {
+		t.Fatalf("second ClaimNextBatch len = %d, want 1", len(next))
+	}
+	if next[0].ID != third.ID {
+		t.Fatalf("second ClaimNextBatch order = [%s], want [%s]", next[0].ID, third.ID)
+	}
+}
+
 func TestJobMemoryStoreRenewLeaseAndOwnershipChecks(t *testing.T) {
 	ctx := context.Background()
 	store := NewJobMemoryStore()

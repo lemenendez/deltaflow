@@ -739,6 +739,7 @@ func (s *JobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, 
 WITH candidate AS (
 	SELECT
 		id,
+		row_number() OVER (ORDER BY available_at ASC, created_at ASC, id ASC) AS ord,
 		(
 			state = 'processing'
 			AND (locked_until IS NULL OR locked_until <= $1)
@@ -759,37 +760,63 @@ WITH candidate AS (
 	ORDER BY available_at ASC, created_at ASC, id ASC
 	LIMIT $5
 	FOR UPDATE SKIP LOCKED
+), updated AS (
+	UPDATE deltaflow.deltaflow_sync_jobs j
+	SET
+		state = 'processing',
+		locked_by = $3,
+		locked_until = $4,
+		updated_at = $1
+	FROM candidate
+	WHERE j.id = candidate.id
+	RETURNING
+		j.id::text,
+		j.sync_id,
+		j.delta_id::text,
+		j.origin,
+		j.projection_type,
+		j.projection_key,
+		j.projection_key_hash,
+		j.state,
+		j.attempt_count,
+		j.max_attempts,
+		j.last_error,
+		j.last_error_code,
+		j.available_at,
+		j.locked_by,
+		j.locked_until,
+		j.ghost_detected,
+		j.synced_at,
+		j.dead_at,
+		j.created_at,
+		j.updated_at,
+		candidate.ord,
+		candidate.reclaimed
 )
-UPDATE deltaflow.deltaflow_sync_jobs j
-SET
-	state = 'processing',
-	locked_by = $3,
-	locked_until = $4,
-	updated_at = $1
-FROM candidate
-WHERE j.id = candidate.id
-RETURNING
-	j.id::text,
-	j.sync_id,
-	j.delta_id::text,
-	j.origin,
-	j.projection_type,
-	j.projection_key,
-	j.projection_key_hash,
-	j.state,
-	j.attempt_count,
-	j.max_attempts,
-	j.last_error,
-	j.last_error_code,
-	j.available_at,
-	j.locked_by,
-	j.locked_until,
-	j.ghost_detected,
-	j.synced_at,
-	j.dead_at,
-	j.created_at,
-	j.updated_at,
-	candidate.reclaimed`, now, syncID, workerID, lockedUntil, limit)
+SELECT
+	id::text,
+	sync_id,
+	delta_id::text,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at,
+	locked_by,
+	locked_until,
+	ghost_detected,
+	synced_at,
+	dead_at,
+	created_at,
+	updated_at,
+	reclaimed
+FROM updated
+ORDER BY ord`, now, syncID, workerID, lockedUntil, limit)
 	if err != nil {
 		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultError)
 		s.logLease("lease_claim_failed",

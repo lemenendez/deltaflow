@@ -739,6 +739,240 @@ func TestSyncWorkerMarksDeadWhenLeaseHeartbeatFailsAtLastAttempt(t *testing.T) {
 	}
 }
 
+func TestSyncWorkerProcessesBatchedJobsConcurrently(t *testing.T) {
+	ctx := context.Background()
+	jobStore := NewJobMemoryStore()
+
+	firstJob, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create first job returned error: %v", err)
+	}
+	secondJob, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create second job returned error: %v", err)
+	}
+
+	var mu sync.Mutex
+	running := 0
+	maxRunning := 0
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	release := make(chan struct{})
+
+	worker := SyncWorker{
+		JobStore: jobStore,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			mu.Lock()
+			running++
+			if running > maxRunning {
+				maxRunning = running
+			}
+			if running == 2 {
+				startedOnce.Do(func() { close(started) })
+			}
+			mu.Unlock()
+
+			select {
+			case <-release:
+			case <-time.After(time.Second):
+				return errors.New("timed out waiting for concurrent processing release")
+			}
+
+			mu.Lock()
+			running--
+			mu.Unlock()
+			return nil
+		}),
+		SyncID:      "sync",
+		WorkerID:    "worker-1",
+		LockFor:     time.Hour,
+		BatchSize:   1,
+		Concurrency: 2,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.RunOnce(ctx)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for both workers to enter applier")
+	}
+
+	close(release)
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	if maxRunning != 2 {
+		t.Fatalf("max concurrent applies = %d, want 2", maxRunning)
+	}
+
+	for _, job := range []*deltaflow.SyncJob{firstJob, secondJob} {
+		got := mustGetJob(t, ctx, jobStore, job.ID)
+		if got.State != deltaflow.StateSynced {
+			t.Fatalf("job %s state = %s, want %s", job.ID, got.State, deltaflow.StateSynced)
+		}
+	}
+}
+
+func TestSyncWorkerPreservesRetryAndDeadOutcomesWithinBatch(t *testing.T) {
+	ctx := context.Background()
+	jobStore := NewJobMemoryStore()
+
+	retryJob, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"retry"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create retry job returned error: %v", err)
+	}
+	deadJob, err := jobStore.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"dead"`),
+		},
+		AttemptCount: 1,
+		MaxAttempts:  2,
+	})
+	if err != nil {
+		t.Fatalf("Create dead job returned error: %v", err)
+	}
+	_ = deadJob
+
+	worker := SyncWorker{
+		JobStore: jobStore,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier: deltaflow.ProjectionApplierFunc(func(ctx context.Context, op deltaflow.ProjectionOperation) error {
+			switch string(op.Identity.Key["contact_id"]) {
+			case `"retry"`:
+				return errors.New("retryable apply failure")
+			case `"dead"`:
+				return errors.New("terminal apply failure")
+			default:
+				return nil
+			}
+		}),
+		SyncID:    "sync",
+		WorkerID:  "worker-1",
+		LockFor:   time.Hour,
+		BatchSize: 2,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	retryGot := mustGetJob(t, ctx, jobStore, retryJob.ID)
+	if retryGot.State != deltaflow.StateRetrying {
+		t.Fatalf("retry job state = %s, want %s", retryGot.State, deltaflow.StateRetrying)
+	}
+	if retryGot.AttemptCount != 1 {
+		t.Fatalf("retry job attempt_count = %d, want 1", retryGot.AttemptCount)
+	}
+	if retryGot.LastError == nil || *retryGot.LastError != "retryable apply failure" {
+		t.Fatalf("retry job last_error = %v, want retryable apply failure", retryGot.LastError)
+	}
+
+	deadGot := mustGetJob(t, ctx, jobStore, deadJob.ID)
+	if deadGot.State != deltaflow.StateDead {
+		t.Fatalf("dead job state = %s, want %s", deadGot.State, deltaflow.StateDead)
+	}
+	if deadGot.AttemptCount != 2 {
+		t.Fatalf("dead job attempt_count = %d, want 2", deadGot.AttemptCount)
+	}
+	if deadGot.DeadAt == nil {
+		t.Fatal("dead job dead_at is nil")
+	}
+	if deadGot.LastError == nil || *deadGot.LastError != "terminal apply failure" {
+		t.Fatalf("dead job last_error = %v, want terminal apply failure", deadGot.LastError)
+	}
+}
+
+func TestSyncWorkerFallsBackToClaimNextWhenBatchClaimsUnavailable(t *testing.T) {
+	ctx := context.Background()
+	jobStore := newClaimNextOnlyJobStore(NewJobMemoryStore())
+
+	firstJob, err := jobStore.inner.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"1"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create first job returned error: %v", err)
+	}
+	secondJob, err := jobStore.inner.Create(ctx, deltaflow.SyncJob{
+		SyncID:         "sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "Contact",
+		ProjectionKey: deltaflow.ProjectionKey{
+			"contact_id": json.RawMessage(`"2"`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create second job returned error: %v", err)
+	}
+
+	worker := SyncWorker{
+		JobStore: jobStore,
+		Projector: deltaflow.ProjectorFunc(func(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{Identity: identity}, nil
+		}),
+		Applier:     recordApplier(nil, nil),
+		SyncID:      "sync",
+		WorkerID:    "worker-1",
+		LockFor:     time.Hour,
+		BatchSize:   3,
+		Concurrency: 1,
+	}
+
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	if got := jobStore.claimCount(); got != 3 {
+		t.Fatalf("ClaimNext call count = %d, want 3", got)
+	}
+
+	for _, job := range []*deltaflow.SyncJob{firstJob, secondJob} {
+		got := mustGetJob(t, ctx, jobStore.inner, job.ID)
+		if got.State != deltaflow.StateSynced {
+			t.Fatalf("job %s state = %s, want %s", job.ID, got.State, deltaflow.StateSynced)
+		}
+	}
+}
+
 type renewLeaseSpyJobStore struct {
 	inner        deltaflow.JobStore
 	mu           sync.Mutex
@@ -888,4 +1122,51 @@ func recordApplier(applied *[]deltaflow.ProjectionOperation, err error) deltaflo
 		}
 		return err
 	})
+}
+
+type claimNextOnlyJobStore struct {
+	inner      *JobMemoryStore
+	mu         sync.Mutex
+	claimCalls int
+}
+
+func newClaimNextOnlyJobStore(inner *JobMemoryStore) *claimNextOnlyJobStore {
+	return &claimNextOnlyJobStore{inner: inner}
+}
+
+func (s *claimNextOnlyJobStore) Create(ctx context.Context, job deltaflow.SyncJob) (*deltaflow.SyncJob, error) {
+	return s.inner.Create(ctx, job)
+}
+
+func (s *claimNextOnlyJobStore) Get(ctx context.Context, jobID deltaflow.SyncJobID) (*deltaflow.SyncJob, bool, error) {
+	return s.inner.Get(ctx, jobID)
+}
+
+func (s *claimNextOnlyJobStore) ClaimNext(ctx context.Context, syncID deltaflow.SyncID, workerID string, lockFor time.Duration) (*deltaflow.SyncJob, error) {
+	s.mu.Lock()
+	s.claimCalls++
+	s.mu.Unlock()
+	return s.inner.ClaimNext(ctx, syncID, workerID, lockFor)
+}
+
+func (s *claimNextOnlyJobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
+	return s.inner.RenewLease(ctx, jobID, workerID, lockFor)
+}
+
+func (s *claimNextOnlyJobStore) MarkSynced(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, ghostDetected bool) error {
+	return s.inner.MarkSynced(ctx, jobID, workerID, ghostDetected)
+}
+
+func (s *claimNextOnlyJobStore) MarkRetrying(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error, nextRunAt time.Time) error {
+	return s.inner.MarkRetrying(ctx, jobID, workerID, err, nextRunAt)
+}
+
+func (s *claimNextOnlyJobStore) MarkDead(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, err error) error {
+	return s.inner.MarkDead(ctx, jobID, workerID, err)
+}
+
+func (s *claimNextOnlyJobStore) claimCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.claimCalls
 }
