@@ -225,7 +225,6 @@ workers:
   concurrency: 8
   lease_ttl: 30s
   batch_size: 16
-  pull_size: 1
   max_attempts: 5
 
 pipelines:

@@ -61,6 +61,13 @@ registrations are explicit and map-based. DeltaFlow does not infer application
 projector wiring from YAML. Registration is done during startup before `run`,
 and duplicate names fail fast.
 
+Worker sizing notes for `run`:
+
+- `workers.concurrency` controls how many routines process jobs per pipeline cycle.
+- `workers.batch_size` controls how many jobs each routine can claim per cycle.
+- `workers.pull_size` is optional. When omitted, the worker derives dispatch pull size as `concurrency * batch_size`.
+- Set `workers.pull_size` explicitly only when you need tighter or looser dispatch limits than the derived default.
+
 ## Development Hooks
 
 Set up the repo pre-commit hook:
