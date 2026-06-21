@@ -72,6 +72,9 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 
 	concurrency := w.effectiveConcurrency()
 	batchSize := w.effectiveBatchSize()
+	if concurrency == 1 {
+		return w.processBatch(ctx, w.WorkerIDForRoutine(0), batchSize)
+	}
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
