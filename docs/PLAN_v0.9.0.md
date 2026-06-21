@@ -25,7 +25,7 @@ Target behavior in v0.9.0:
   - claim with lease ownership
   - projector execution
   - applier execution
-  - state transition (`done` / `retry` / `dead` / `ghost-delete`)
+  - state transition (`synced` / `retrying` / `dead`, with `ghost_detected` on synced ghost-delete handling)
 - Lease checks remain authoritative on every transition and renewal path.
 
 Config surface:

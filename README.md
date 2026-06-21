@@ -66,6 +66,7 @@ Worker sizing notes for `run`:
 - `workers.concurrency` controls how many goroutines process jobs per pipeline cycle.
 - When `workers.concurrency > 1`, `Projector.Project` and `ProjectionApplier.Apply` can run concurrently and must be safe for concurrent use (or wrapped to be serialized).
 - `workers.batch_size` controls how many jobs each goroutine can claim per cycle.
+- `workers.lock_for` should be sized to exceed worst-case per-goroutine batch drain time. A practical bound is roughly `batch_size * max_job_time` per goroutine. If leases expire before a claimed job starts, ownership can be lost and the cycle may requeue leftovers.
 - `workers.pull_size` is optional. When omitted, the worker derives dispatch pull size as `concurrency * batch_size`.
 - Set `workers.pull_size` explicitly only when you need tighter or looser dispatch limits than the derived default.
 

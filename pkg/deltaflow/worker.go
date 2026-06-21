@@ -150,6 +150,9 @@ func (w *SyncWorker) processBatch(ctx context.Context, workerID string, batchSiz
 	if len(jobs) == 0 {
 		return nil
 	}
+	// Claimed jobs are drained sequentially in this goroutine. Operators should
+	// size lock_for to cover worst-case per-goroutine batch drain time, otherwise
+	// later claimed jobs can lose ownership before processing starts.
 
 	for i, job := range jobs {
 		if err := ctx.Err(); err != nil {
