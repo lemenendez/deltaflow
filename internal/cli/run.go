@@ -59,6 +59,8 @@ func newRunCommand(opts *options) *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
+			runCtx, cancelRun := context.WithCancel(ctx)
+			defer cancelRun()
 
 			storeType := strings.TrimSpace(cfg.Store.Type)
 			if storeType != "postgres" && storeType != "sqlite" {
@@ -83,7 +85,7 @@ func newRunCommand(opts *options) *cobra.Command {
 			}
 			defer db.Close()
 
-			if err := db.PingContext(ctx); err != nil {
+			if err := db.PingContext(runCtx); err != nil {
 				if storeType == "sqlite" {
 					return fmt.Errorf("connect sqlite: %w", err)
 				}
@@ -93,6 +95,8 @@ func newRunCommand(opts *options) *cobra.Command {
 			var (
 				jobStore      deltaflow.JobStore
 				dispatchStore deltaflow.DispatchStore
+				lockErrCh     <-chan error
+				stopHeartbeat func()
 			)
 
 			if storeType == "postgres" {
@@ -105,11 +109,11 @@ func newRunCommand(opts *options) *cobra.Command {
 				jobStore = job
 				dispatchStore = pgstore.NewDispatchStore(deltaStore, job, pgstore.DispatchStoreConfig{})
 			} else {
-				if _, err := sqlitestore.ApplyMigrations(ctx, db); err != nil {
+				if _, err := sqlitestore.ApplyMigrations(runCtx, db); err != nil {
 					return err
 				}
 
-				releaseLock, err := sqlitestore.AcquireWorkerLock(ctx, db, workerID, leaseTTL)
+				releaseLock, err := sqlitestore.AcquireWorkerLock(runCtx, db, workerID, leaseTTL)
 				if err != nil {
 					if errors.Is(err, sqlitestore.ErrWorkerAlreadyRunning) {
 						return fmt.Errorf("sqlite worker already running for this database; stop the other worker or use postgres for multi-worker deployments")
@@ -117,9 +121,18 @@ func newRunCommand(opts *options) *cobra.Command {
 					return err
 				}
 				defer func() {
-					releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+					releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), 2*time.Second)
 					defer cancelRelease()
 					_ = releaseLock(releaseCtx)
+				}()
+
+				stopHeartbeat, lockErrCh = startSQLiteWorkerLockHeartbeat(runCtx, db, workerID, leaseTTL)
+				defer stopHeartbeat()
+				go func() {
+					err, ok := <-lockErrCh
+					if ok && err != nil {
+						cancelRun()
+					}
 				}()
 
 				deltaStore := sqlitestore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
@@ -158,7 +171,7 @@ func newRunCommand(opts *options) *cobra.Command {
 				})
 			}
 
-			built, err := runtimepkg.BuildFromConfig(ctx, runtimeCfg, opts.runtimeRegistry, runtimepkg.WorkerDeps{
+			built, err := runtimepkg.BuildFromConfig(runCtx, runtimeCfg, opts.runtimeRegistry, runtimepkg.WorkerDeps{
 				JobStore:    jobStore,
 				Dispatcher:  dispatchStore,
 				StoreDB:     db,
@@ -172,7 +185,17 @@ func newRunCommand(opts *options) *cobra.Command {
 				return err
 			}
 
-			if err := runtimepkg.RunOnce(ctx, built); err != nil {
+			runErr := runtimepkg.RunOnce(runCtx, built)
+			if lockErr := firstHeartbeatError(lockErrCh); lockErr != nil {
+				if runErr == nil || errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+					return lockErr
+				}
+			}
+			if runErr != nil {
+				return runErr
+			}
+
+			if err := firstHeartbeatError(lockErrCh); err != nil {
 				return err
 			}
 
@@ -184,6 +207,72 @@ func newRunCommand(opts *options) *cobra.Command {
 	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker identity for lease ownership")
 
 	return cmd
+}
+
+func startSQLiteWorkerLockHeartbeat(parent context.Context, db *sql.DB, workerID string, leaseTTL time.Duration) (func(), <-chan error) {
+	heartbeatCtx, cancel := context.WithCancel(parent)
+	errCh := make(chan error, 1)
+	interval := sqliteLockHeartbeatInterval(leaseTTL)
+	ticker := time.NewTicker(interval)
+	renewTimeout := minDuration(interval, 2*time.Second)
+
+	go func() {
+		defer ticker.Stop()
+		defer close(errCh)
+
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				renewCtx, cancelRenew := context.WithTimeout(context.WithoutCancel(heartbeatCtx), renewTimeout)
+				err := sqlitestore.RenewWorkerLock(renewCtx, db, workerID, leaseTTL)
+				cancelRenew()
+				if err != nil {
+					errCh <- fmt.Errorf("sqlite worker lock heartbeat failed: %w", err)
+					return
+				}
+			}
+		}
+	}()
+
+	return cancel, errCh
+}
+
+func sqliteLockHeartbeatInterval(leaseTTL time.Duration) time.Duration {
+	if leaseTTL <= 0 {
+		return time.Second
+	}
+	half := leaseTTL / 2
+	if half < time.Second {
+		return time.Second
+	}
+	if half > 10*time.Second {
+		return 10 * time.Second
+	}
+	return half
+}
+
+func firstHeartbeatError(errCh <-chan error) error {
+	if errCh == nil {
+		return nil
+	}
+	select {
+	case err, ok := <-errCh:
+		if !ok {
+			return nil
+		}
+		return err
+	default:
+		return nil
+	}
+}
+
+func minDuration(a time.Duration, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func workerSizing(workers config.WorkersConfig) (pullSize int, batchSize int) {

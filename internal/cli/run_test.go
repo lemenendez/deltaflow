@@ -2,6 +2,7 @@ package cli
 
 import (
 	"testing"
+	"time"
 
 	"github.com/lemenendez/deltaflow/internal/config"
 )
@@ -29,5 +30,27 @@ func TestWorkerSizingUsesConfiguredValues(t *testing.T) {
 	}
 	if batchSize != batchSizeValue {
 		t.Fatalf("batchSize = %d, want %d", batchSize, batchSizeValue)
+	}
+}
+
+func TestSQLiteLockHeartbeatInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		leaseTTL time.Duration
+		want     time.Duration
+	}{
+		{name: "non-positive lease", leaseTTL: 0, want: time.Second},
+		{name: "small lease rounds up", leaseTTL: 1200 * time.Millisecond, want: time.Second},
+		{name: "uses half lease", leaseTTL: 8 * time.Second, want: 4 * time.Second},
+		{name: "caps long lease", leaseTTL: 40 * time.Second, want: 10 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sqliteLockHeartbeatInterval(tt.leaseTTL)
+			if got != tt.want {
+				t.Fatalf("sqliteLockHeartbeatInterval(%v) = %v, want %v", tt.leaseTTL, got, tt.want)
+			}
+		})
 	}
 }

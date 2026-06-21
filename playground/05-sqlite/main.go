@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -85,6 +86,9 @@ func main() {
 			}
 			var fullName string
 			if err := db.QueryRowContext(ctx, `SELECT full_name FROM contacts WHERE id = ?`, contactID).Scan(&fullName); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return deltaflow.Projection{}, deltaflow.ErrProjectionNotFound
+				}
 				return deltaflow.Projection{}, err
 			}
 			payload, err := json.Marshal(map[string]string{"id": contactID, "full_name": fullName})

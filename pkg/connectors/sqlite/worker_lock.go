@@ -9,6 +9,7 @@ import (
 )
 
 var ErrWorkerAlreadyRunning = errors.New("sqlite worker lock is already held")
+var ErrWorkerLockNotOwned = errors.New("sqlite worker lock is not owned by worker")
 
 func AcquireWorkerLock(ctx context.Context, db *sql.DB, workerID string, leaseFor time.Duration) (func(context.Context) error, error) {
 	if db == nil {
@@ -50,4 +51,34 @@ WHERE deltaflow_worker_locks.expires_at_micros <= ?`, workerID, acquiredAt, expi
 	}
 
 	return release, nil
+}
+
+func RenewWorkerLock(ctx context.Context, db *sql.DB, workerID string, leaseFor time.Duration) error {
+	if db == nil {
+		return fmt.Errorf("sqlite worker lock requires database")
+	}
+	if workerID == "" {
+		return fmt.Errorf("sqlite worker lock requires worker id")
+	}
+	if leaseFor <= 0 {
+		return fmt.Errorf("sqlite worker lock requires positive lease")
+	}
+
+	expiresAt := microsFromTime(time.Now().UTC().Add(leaseFor))
+	res, err := db.ExecContext(ctx, `
+UPDATE deltaflow_worker_locks
+SET expires_at_micros = ?
+WHERE lock_name = 'singleton' AND worker_id = ?`, expiresAt, workerID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrWorkerLockNotOwned
+	}
+
+	return nil
 }

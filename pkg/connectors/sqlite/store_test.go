@@ -149,6 +149,67 @@ func TestJobStoreLeaseOwnershipFlow(t *testing.T) {
 	}
 }
 
+func TestClaimCandidateTxRejectsStaleClaimPredicate(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	fixedNow := time.Unix(1_700_000_000, 0).UTC()
+	store := NewJobStore(db, JobStoreConfig{Now: func() time.Time { return fixedNow }})
+
+	created, err := store.Create(context.Background(), deltaflow.SyncJob{
+		SyncID:         "contacts-sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "contact",
+		ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(`"c-stale"`)},
+	})
+	if err != nil {
+		t.Fatalf("Create error: %v", err)
+	}
+
+	nowMicros := microsFromTime(fixedNow)
+	futureLock := microsFromTime(fixedNow.Add(30 * time.Second))
+	if _, err := db.ExecContext(context.Background(), `
+UPDATE deltaflow_sync_jobs
+SET
+	state = 'processing',
+	locked_by = ?,
+	locked_until_micros = ?,
+	updated_at_micros = ?
+WHERE id = ?`, "other-worker", futureLock, nowMicros, created.ID); err != nil {
+		t.Fatalf("prepare stale row error: %v", err)
+	}
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BeginTx error: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	claimed, err := store.claimCandidateTx(context.Background(), tx, "contacts-sync", string(created.ID), "w1", nowMicros, microsFromTime(fixedNow.Add(5*time.Second)))
+	if err != nil {
+		t.Fatalf("claimCandidateTx error: %v", err)
+	}
+	if claimed {
+		t.Fatal("claimCandidateTx = true, want false for stale candidate")
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
+
+	got, ok, err := store.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if !ok {
+		t.Fatal("Get ok = false, want true")
+	}
+	if got.LockedBy == nil || *got.LockedBy != "other-worker" {
+		t.Fatalf("LockedBy = %v, want other-worker", got.LockedBy)
+	}
+	if got.State != deltaflow.StateProcessing {
+		t.Fatalf("state = %q, want %q", got.State, deltaflow.StateProcessing)
+	}
+}
+
 func TestAcquireWorkerLockSingleton(t *testing.T) {
 	db := openSQLiteTestDB(t)
 	ctx := context.Background()

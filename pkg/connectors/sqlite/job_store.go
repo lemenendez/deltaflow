@@ -213,22 +213,11 @@ LIMIT 1`, syncID, nowMicros, nowMicros).Scan(&candidateID)
 		return nil, err
 	}
 
-	res, err := tx.ExecContext(ctx, `
-UPDATE deltaflow_sync_jobs
-SET
-	state = 'processing',
-	locked_by = ?,
-	locked_until_micros = ?,
-	updated_at_micros = ?
-WHERE id = ?`, workerID, lockedUntilMicros, nowMicros, candidateID)
+	claimed, err := s.claimCandidateTx(ctx, tx, syncID, candidateID, workerID, nowMicros, lockedUntilMicros)
 	if err != nil {
 		return nil, err
 	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if affected == 0 {
+	if !claimed {
 		if commitErr := tx.Commit(); commitErr != nil {
 			return nil, commitErr
 		}
@@ -269,6 +258,34 @@ func (s *JobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, 
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
+}
+
+func (s *JobStore) claimCandidateTx(ctx context.Context, tx *sql.Tx, syncID deltaflow.SyncID, candidateID, workerID string, nowMicros, lockedUntilMicros int64) (bool, error) {
+	res, err := tx.ExecContext(ctx, `
+UPDATE deltaflow_sync_jobs
+SET
+	state = 'processing',
+	locked_by = ?,
+	locked_until_micros = ?,
+	updated_at_micros = ?
+WHERE id = ?
+	AND sync_id = ?
+	AND (
+		(state IN ('pending', 'retrying') AND available_at_micros <= ?)
+		OR (state = 'processing' AND (locked_until_micros IS NULL OR locked_until_micros <= ?))
+	)`, workerID, lockedUntilMicros, nowMicros, candidateID, syncID, nowMicros, nowMicros)
+	return rowsAffected(res, err)
+}
+
+func rowsAffected(res sql.Result, execErr error) (bool, error) {
+	if execErr != nil {
+		return false, execErr
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
 }
 
 func (s *JobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
