@@ -13,6 +13,8 @@ func TestApplyMigrationsCreatesTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open error: %v", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	defer db.Close()
 
 	applied, err := ApplyMigrations(context.Background(), db)

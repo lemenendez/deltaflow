@@ -281,6 +281,8 @@ func openSQLiteTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("sql.Open error: %v", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 
 	if _, err := ApplyMigrations(context.Background(), db); err != nil {
