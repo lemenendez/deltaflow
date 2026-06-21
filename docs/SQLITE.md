@@ -1,6 +1,6 @@
 # SQLite
 
-SQLite support in DeltaFlow v0.10.0 is intentionally conservative.
+SQLite support in DeltaFlow v0.10.0 is intentionally conservative, but it is production-capable for the supported single-node / single-worker shape.
 
 Use it for:
 
@@ -8,6 +8,7 @@ Use it for:
 - embedded applications
 - demos
 - single-node, single-tenant disk-backed usage
+- production deployments that fit the supported single-node / single-worker model
 
 Do not use it for:
 

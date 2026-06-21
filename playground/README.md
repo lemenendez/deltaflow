@@ -14,4 +14,4 @@ Available playgrounds:
 - `02-postgres`: contact delta flow using Postgres DeltaStore, DispatchStore, and JobStore with docker compose
 - `03-postgres-e-commerce`: concurrent product search workload with deterministic web/logistics writers, Elasticsearch, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation
 - `04-postgres-crm`: concurrent CRM read-model workload with simulated Redis views, Elasticsearch search fanout, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation
-- `05-sqlite`: local single-worker SQLite durable-store demo with transactional source write + delta enqueue + worker apply cycle
+- `05-sqlite`: SQLite durable-store example for the supported single-node / single-worker model with transactional source write + delta enqueue + worker apply cycle

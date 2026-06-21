@@ -50,6 +50,7 @@ Rationale:
 - Local development.
 - Embedded/single-binary applications.
 - Demos and low-scale single-tenant deployments.
+- Production single-node deployments that stay within the supported single-worker model.
 
 ## Upgrade and Config Notes
 
