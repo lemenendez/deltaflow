@@ -76,7 +76,8 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errCh := make(chan error, concurrency)
+	var firstErr error
+	var firstErrOnce sync.Once
 	var wg sync.WaitGroup
 
 	for i := 0; i < concurrency; i++ {
@@ -85,22 +86,16 @@ func (w *SyncWorker) RunOnce(ctx context.Context) error {
 		go func(id string) {
 			defer wg.Done()
 			if err := w.processBatch(workerCtx, id, batchSize); err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
-				cancel()
+				firstErrOnce.Do(func() {
+					firstErr = err
+					cancel()
+				})
 			}
 		}(workerID)
 	}
 
 	wg.Wait()
-	select {
-	case err := <-errCh:
-		return err
-	default:
-		return nil
-	}
+	return firstErr
 }
 
 func (w *SyncWorker) validateRunOnceDependencies() error {
