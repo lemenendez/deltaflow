@@ -59,7 +59,7 @@ DELTAFLOW_PG_DSN='postgres://deltaflow:deltaflow@localhost:5432/deltaflow?sslmod
 
 - Postgres shows a different curve than in-memory: moderate concurrency with batching performs best in this run.
 - Best observed case here: concurrency=2, batch=8.
-- Very high concurrency with tiny batch can regress due contention/overhead.
+- Very high concurrency with tiny batch can regress due to contention/overhead.
 - Ghost count mismatch in one case (`c=4,b=1`) suggests a benchmark accounting race and should be validated before final default selection.
 
 ## Recorded Run - 2026-06-19 (terminal sample #2)

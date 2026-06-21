@@ -1,4 +1,4 @@
-# v0.9.0 (Draft)
+# v0.9.0
 
 DeltaFlow v0.9.0 is focused on worker throughput improvements through
 configurable concurrency and batching, while keeping correctness guardrails
@@ -21,7 +21,7 @@ changing the fundamental latest-state reconciliation model.
 
 - Worker process can run `N` routines per pipeline.
 - Each routine can claim up to `M` jobs per cycle.
-- Per-job outcomes remain explicit (`done`, `retry`, `dead`, `ghost-delete`).
+- Per-job outcomes remain explicit and map to canonical job states (`synced`, `retrying`, `dead`) plus `ghost_detected` on synced ghost-delete handling.
 - `concurrency=1` and `batch_size=1` should preserve current baseline behavior.
 
 ## Verification Plan
