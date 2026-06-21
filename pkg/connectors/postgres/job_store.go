@@ -715,6 +715,175 @@ RETURNING
 	return job, nil
 }
 
+func (s *JobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, workerID string, limit int, lockFor time.Duration) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if lockFor <= 0 {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultInvalidLockFor)
+		s.logLease("lease_claim_rejected",
+			"sync_id", syncID,
+			"worker_id", workerID,
+			"reason", "invalid_lock_for",
+		)
+		return nil, deltaflow.ErrInvalidLockFor
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	now := s.Now()
+	lockedUntil := now.Add(lockFor)
+
+	rows, err := s.DB.QueryContext(ctx, `
+WITH candidate AS (
+	SELECT
+		id,
+		row_number() OVER (ORDER BY available_at ASC, created_at ASC, id ASC) AS ord,
+		(
+			state = 'processing'
+			AND (locked_until IS NULL OR locked_until <= $1)
+		) AS reclaimed
+	FROM deltaflow.deltaflow_sync_jobs
+	WHERE
+		sync_id = $2
+		AND (
+			(
+				state IN ('pending', 'retrying')
+				AND available_at <= $1
+			)
+			OR (
+				state = 'processing'
+				AND (locked_until IS NULL OR locked_until <= $1)
+			)
+		)
+	ORDER BY available_at ASC, created_at ASC, id ASC
+	LIMIT $5
+	FOR UPDATE SKIP LOCKED
+), updated AS (
+	UPDATE deltaflow.deltaflow_sync_jobs j
+	SET
+		state = 'processing',
+		locked_by = $3,
+		locked_until = $4,
+		updated_at = $1
+	FROM candidate
+	WHERE j.id = candidate.id
+	RETURNING
+		j.id::text,
+		j.sync_id,
+		j.delta_id::text,
+		j.origin,
+		j.projection_type,
+		j.projection_key,
+		j.projection_key_hash,
+		j.state,
+		j.attempt_count,
+		j.max_attempts,
+		j.last_error,
+		j.last_error_code,
+		j.available_at,
+		j.locked_by,
+		j.locked_until,
+		j.ghost_detected,
+		j.synced_at,
+		j.dead_at,
+		j.created_at,
+		j.updated_at,
+		candidate.ord,
+		candidate.reclaimed
+)
+SELECT
+	id::text,
+	sync_id,
+	delta_id::text,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at,
+	locked_by,
+	locked_until,
+	ghost_detected,
+	synced_at,
+	dead_at,
+	created_at,
+	updated_at,
+	reclaimed
+FROM updated
+ORDER BY ord`, now, syncID, workerID, lockedUntil, limit)
+	if err != nil {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultError)
+		s.logLease("lease_claim_failed",
+			"sync_id", syncID,
+			"worker_id", workerID,
+			"reason", leaseResult(err),
+			"error", err.Error(),
+		)
+		return nil, err
+	}
+	defer rows.Close()
+
+	jobs := make([]*deltaflow.SyncJob, 0, limit)
+	reclaimedFlags := make([]bool, 0, limit)
+
+	for rows.Next() {
+		var reclaimed bool
+		job, ok, scanErr := s.ScanSyncJobWithExtras(rows, &reclaimed)
+		if scanErr != nil {
+			s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultError)
+			return nil, scanErr
+		}
+		if !ok {
+			continue
+		}
+		jobs = append(jobs, job)
+		reclaimedFlags = append(reclaimedFlags, reclaimed)
+	}
+	if err := rows.Err(); err != nil {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultError)
+		return nil, err
+	}
+
+	if len(jobs) == 0 {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultEmpty)
+		s.logLease("lease_claim_empty",
+			"sync_id", syncID,
+			"worker_id", workerID,
+		)
+		return nil, nil
+	}
+
+	for i, job := range jobs {
+		s.LeaseTelemetry().ObserveLeaseClaim(deltaflow.LeaseTelemetryResultSuccess)
+		reclaimed := reclaimedFlags[i]
+		if reclaimed {
+			s.LeaseTelemetry().ObserveLeaseReclaim()
+		}
+		reason := "ready"
+		if reclaimed {
+			reason = "expired_reclaimed"
+		}
+		s.logLease("lease_claimed",
+			"sync_id", syncID,
+			"job_id", job.ID,
+			"worker_id", workerID,
+			"state", job.State,
+			"attempt_count", job.AttemptCount,
+			"locked_until", job.LockedUntil,
+			"lease_ms_remaining", int64(lockFor/time.Millisecond),
+			"reason", reason,
+		)
+	}
+
+	return jobs, nil
+}
+
 func (s *JobStore) RenewLease(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, lockFor time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -812,6 +981,33 @@ WHERE id = $1::uuid
 		return updateErr
 	}
 	s.logLeaseTransitionApplied(deltaflow.LeaseTelemetryTransitionMarkRetrying, updated, workerID, now,
+		"reason", msg,
+	)
+	return nil
+}
+
+func (s *JobStore) RequeueClaimed(ctx context.Context, jobID deltaflow.SyncJobID, workerID string, reason error, nextRunAt time.Time) error {
+	now := s.Now()
+	msg := connectors.ErrorMessage(reason)
+	updated, updateErr := s.updateAndReturn(ctx, jobID, `
+UPDATE deltaflow.deltaflow_sync_jobs
+SET
+	state = 'retrying',
+	last_error = $2,
+	available_at = $3,
+	locked_by = NULL,
+	locked_until = NULL,
+	updated_at = $4
+WHERE id = $1::uuid
+	AND state = 'processing'
+	AND locked_by = $5
+	AND locked_until > $4`+syncJobReturningColumns, msg, nextRunAt.UTC(), now, workerID)
+	s.observeOwnershipResult(deltaflow.LeaseTelemetryTransitionRequeueClaimed, updateErr)
+	if updateErr != nil {
+		s.logLeaseTransitionRejected(ctx, deltaflow.LeaseTelemetryTransitionRequeueClaimed, jobID, workerID, updateErr, now)
+		return updateErr
+	}
+	s.logLeaseTransitionApplied(deltaflow.LeaseTelemetryTransitionRequeueClaimed, updated, workerID, now,
 		"reason", msg,
 	)
 	return nil

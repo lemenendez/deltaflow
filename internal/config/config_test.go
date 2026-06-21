@@ -126,6 +126,7 @@ store:
 workers:
   concurrency: 8
   lease_ttl: 30s
+  batch_size: 0
   pull_size: 0
   max_attempts: 0
 
@@ -150,6 +151,7 @@ pipelines:
 	}
 
 	for _, want := range []string{
+		"workers.batch_size must be greater than 0",
 		"workers.pull_size must be greater than 0",
 		"workers.max_attempts must be greater than 0",
 	} {
@@ -191,6 +193,9 @@ pipelines:
 	if cfg.Workers.PullSize != nil {
 		t.Fatalf("PullSize = %v, want nil", *cfg.Workers.PullSize)
 	}
+	if cfg.Workers.BatchSize != nil {
+		t.Fatalf("BatchSize = %v, want nil", *cfg.Workers.BatchSize)
+	}
 	if cfg.Workers.MaxAttempts != nil {
 		t.Fatalf("MaxAttempts = %v, want nil", *cfg.Workers.MaxAttempts)
 	}
@@ -219,7 +224,7 @@ store:
 workers:
   concurrency: 8
   lease_ttl: 30s
-  pull_size: 1
+  batch_size: 16
   max_attempts: 5
 
 pipelines:

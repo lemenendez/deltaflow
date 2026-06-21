@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
@@ -64,10 +65,14 @@ func (s *sourceStore) project(_ context.Context, identity deltaflow.ProjectionId
 }
 
 type targetIndex struct {
+	mu   sync.Mutex
 	docs map[string][]byte
 }
 
 func (t *targetIndex) apply(_ context.Context, op deltaflow.ProjectionOperation) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	customerID, err := customerIDFromKey(op.Identity.Key)
 	if err != nil {
 		return err
@@ -86,6 +91,12 @@ func (t *targetIndex) apply(_ context.Context, op deltaflow.ProjectionOperation)
 	default:
 		return fmt.Errorf("unsupported operation %q", op.Type)
 	}
+}
+
+func (t *targetIndex) cloneEmpty() *targetIndex {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return &targetIndex{docs: make(map[string][]byte, len(t.docs))}
 }
 
 func buildDemoScenario() customerCacheScenario {

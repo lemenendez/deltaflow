@@ -5,7 +5,7 @@ store:
 workers:
   concurrency: 8
   lease_ttl: 30s
-  pull_size: 1
+  batch_size: 16
   max_attempts: 5
 
 pipelines:

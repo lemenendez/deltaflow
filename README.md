@@ -43,7 +43,7 @@ custom code owned by the application.
 ## CLI
 
 The CLI validates one minimal YAML shape, applies embedded Postgres schema
-migrations, and starts the v0.8 runtime wiring path with `run`:
+migrations, and starts the v0.9 runtime wiring path with `run`:
 
 ```bash
 go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
@@ -60,6 +60,15 @@ sequences in config values such as DSNs.
 registrations are explicit and map-based. DeltaFlow does not infer application
 projector wiring from YAML. Registration is done during startup before `run`,
 and duplicate names fail fast.
+
+Worker sizing notes for `run`:
+
+- `workers.concurrency` controls how many goroutines process jobs per pipeline cycle.
+- When `workers.concurrency > 1`, `Projector.Project` and `ProjectionApplier.Apply` can run concurrently and must be safe for concurrent use (or wrapped to be serialized).
+- `workers.batch_size` controls how many jobs each goroutine can claim per cycle.
+- `workers.lock_for` should be sized to exceed worst-case per-goroutine batch drain time. A practical bound is roughly `batch_size * max_job_time` per goroutine. If leases expire before a claimed job starts, ownership can be lost and the cycle may requeue leftovers.
+- `workers.pull_size` is optional. When omitted, the worker derives dispatch pull size as `concurrency * batch_size`.
+- Set `workers.pull_size` explicitly only when you need tighter or looser dispatch limits than the derived default.
 
 ## Development Hooks
 

@@ -156,7 +156,7 @@ func ResetSync(ctx context.Context, db *sql.DB, syncID deltaflow.SyncID) error {
 	return nil
 }
 
-func MakeWorker(stores *Stores, syncID deltaflow.SyncID, workerID string, projector deltaflow.Projector, applier deltaflow.ProjectionApplier, pullSize int) *deltaflow.SyncWorker {
+func MakeWorker(stores *Stores, syncID deltaflow.SyncID, workerID string, projector deltaflow.Projector, applier deltaflow.ProjectionApplier, pullSize int, batchSize int) *deltaflow.SyncWorker {
 	return &deltaflow.SyncWorker{
 		JobStore:   stores.JobStore,
 		Dispatcher: stores.DispatchStore,
@@ -166,6 +166,7 @@ func MakeWorker(stores *Stores, syncID deltaflow.SyncID, workerID string, projec
 		WorkerID:   workerID,
 		LockFor:    2 * time.Second,
 		PullSize:   pullSize,
+		BatchSize:  batchSize,
 	}
 }
 

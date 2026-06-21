@@ -40,7 +40,7 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	fileLogger.Logger.Info("playground_run_started", "sync_id", syncID, "scenario", "04-postgres-crm")
 
 	stores, err := hostpkg.OpenStoresWithOptions(ctx, dsn, hostpkg.OpenStoresOptions{
-		MaxAttempts: maxAttempts,
+		MaxAttempts: workerMaxAttempts,
 		LeaseLogger: fileLogger.Logger,
 	})
 	if err != nil {
@@ -67,9 +67,10 @@ func runDemo(ctx context.Context, dsn string) (demoResult, error) {
 	go func() {
 		stats, err := hostpkg.RunWorkers(
 			ctx,
-			workerCount,
+			1,
 			func(workerID string) *deltaflow.SyncWorker {
-				worker := hostpkg.MakeWorker(stores, syncID, workerID, projector, scenario.target, 64)
+				worker := hostpkg.MakeWorker(stores, syncID, workerID, projector, scenario.target, 0, workerBatchSize)
+				worker.Concurrency = workerConcurrency
 				worker.Logger = fileLogger.Logger
 				return worker
 			},

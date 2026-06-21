@@ -18,7 +18,7 @@ func printReport(result demoResult) {
 	fmt.Printf("- Source universe: seed %d generated %d normal products plus 1 poison product for dead-letter behavior.\n", seed, productCount)
 	fmt.Printf("- Workload size: %d random product mutations plus 3 special deltas.\n", mutationCount)
 	fmt.Printf("- %d application-side actors updated durable Postgres product rows and wrote outbox deltas with DeltaStore.EnqueueInTx.\n", writerCount)
-	fmt.Printf("- %d DeltaFlow workers concurrently dispatched, claimed, projected, and applied those jobs from Postgres.\n", workerCount)
+	fmt.Printf("- DeltaFlow workers ran with workers.concurrency=%d and workers.batch_size=%d.\n", workerConcurrency, workerBatchSize)
 	fmt.Println("- Projector reads the latest product row and builds ProductSearchDocument.")
 	if elasticsearchEndpoint == "" {
 		fmt.Println("- Applier is the local Elasticsearch simulator because DELTAFLOW_ES_ENDPOINT is not set.")
@@ -29,10 +29,10 @@ func printReport(result demoResult) {
 
 	fmt.Println("Workload")
 	fmt.Printf("- Product mutations: %s.\n", formatBreakdown(breakdown))
-	if maxAttempts >= 2 {
+	if workerMaxAttempts >= 2 {
 		fmt.Printf("- %s: simulated one temporary Elasticsearch 429, then retry succeeded.\n", retryProductID)
 	} else {
-		fmt.Printf("- %s: simulated one temporary Elasticsearch 429, but MAX_ATTEMPTS=%d marks the job dead immediately.\n", retryProductID, maxAttempts)
+		fmt.Printf("- %s: simulated one temporary Elasticsearch 429, but workers.max_attempts=%d marks the job dead immediately.\n", retryProductID, workerMaxAttempts)
 	}
 	fmt.Println("- sku-dead-001: simulated permanent target rejection, so the job reached dead-letter after max attempts.")
 	fmt.Println("- sku-ghost-001: stale search document with no source product, so DeltaFlow issued a delete.")

@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -25,6 +27,15 @@ type runStats struct {
 
 func main() {
 	ctx := context.Background()
+	mode := flag.String("mode", "demo", "run mode: demo or bench")
+	seed := flag.Int64("seed", 42, "deterministic benchmark seed")
+	universe := flag.Int("universe", 1000, "number of source entities")
+	mutations := flag.Int("mutations", 50000, "number of deltas/jobs to process")
+	ghostEvery := flag.Int("ghost-every", 10, "every Nth mutation uses a missing source key; 0 disables ghosts")
+	concurrency := flag.String("concurrency", "1,2,4,8", "comma-separated worker concurrency values")
+	batchSize := flag.String("batch", "1,8,16,32", "comma-separated worker batch size values")
+	lockFor := flag.Duration("lock-for", 30*time.Second, "lease duration for benchmark jobs")
+	flag.Parse()
 
 	dsn := os.Getenv("DELTAFLOW_PG_DSN")
 	if dsn == "" {
@@ -39,6 +50,24 @@ func main() {
 
 	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf("ping db: %v", err)
+	}
+	queryDB = db
+
+	if *mode == "bench" {
+		cfg := postgresBenchmarkConfig{
+			Seed:         *seed,
+			Universe:     *universe,
+			Mutations:    *mutations,
+			GhostEvery:   *ghostEvery,
+			Concurrency:  *concurrency,
+			BatchSize:    *batchSize,
+			LockFor:      *lockFor,
+			WorkerIDBase: "playground-02-bench-worker",
+		}
+		if err := runPostgresBenchmark(ctx, db, cfg); err != nil {
+			log.Fatalf("benchmark failed: %v", err)
+		}
+		return
 	}
 
 	deltaStore := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
@@ -92,7 +121,7 @@ func runWorkerLoop(
 		stats.Enqueued++
 	}
 
-	// For this fixed demo, each RunOnce processes at most one claimed job.
+	// This demo uses the default one-job-per-cycle worker settings.
 	// Running exactly len(deltas) times keeps the example clean and deterministic.
 	for i := 0; i < len(scenario.deltas); i++ {
 		if err := worker.RunOnce(ctx); err != nil {
@@ -101,9 +130,8 @@ func runWorkerLoop(
 		stats.WorkerRuns++
 	}
 
-	stats.Upserts = applier.upserts
-	stats.Deletes = applier.deletes
-	stats.Ghosts = projector.ghostDeletes
+	stats.Upserts, stats.Deletes = applier.Snapshot()
+	stats.Ghosts = projector.Snapshot()
 
 	return stats, nil
 }
@@ -118,19 +146,29 @@ func attachRunScopedSyncID(scenario *contactSyncScenario) deltaflow.SyncID {
 
 type countingProjector struct {
 	projectFn    func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error)
+	mu           sync.Mutex
 	ghostDeletes int
 }
 
 func (p *countingProjector) Project(ctx context.Context, identity deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
 	projection, err := p.projectFn(ctx, identity)
 	if errors.Is(err, deltaflow.ErrProjectionNotFound) {
+		p.mu.Lock()
 		p.ghostDeletes++
+		p.mu.Unlock()
 	}
 	return projection, err
 }
 
+func (p *countingProjector) Snapshot() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ghostDeletes
+}
+
 type countingApplier struct {
 	applyFn func(context.Context, deltaflow.ProjectionOperation) error
+	mu      sync.Mutex
 	upserts int
 	deletes int
 }
@@ -142,10 +180,20 @@ func (a *countingApplier) Apply(ctx context.Context, op deltaflow.ProjectionOper
 
 	switch op.Type {
 	case deltaflow.ProjectionOpUpsert:
+		a.mu.Lock()
 		a.upserts++
+		a.mu.Unlock()
 	case deltaflow.ProjectionOpDelete:
+		a.mu.Lock()
 		a.deletes++
+		a.mu.Unlock()
 	}
 
 	return nil
+}
+
+func (a *countingApplier) Snapshot() (int, int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.upserts, a.deletes
 }

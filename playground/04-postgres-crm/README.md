@@ -45,13 +45,14 @@ Default simulation size:
 - `ORDER_COUNT=22`
 - `MUTATION_COUNT=64`
 - `WRITER_COUNT=4`
-- `WORKER_COUNT=2`
-- `MAX_ATTEMPTS=3`
+- `WORKERS_CONCURRENCY=2`
+- `WORKERS_BATCH_SIZE=64`
+- `WORKERS_MAX_ATTEMPTS=3`
 - `SIM_SEED=4004`
 
 Custom size example:
 
-- `make run USER_COUNT=50 CUSTOMER_COUNT=500 ORDER_COUNT=1000 MUTATION_COUNT=5000 WRITER_COUNT=8 WORKER_COUNT=4`
+- `make run USER_COUNT=50 CUSTOMER_COUNT=500 ORDER_COUNT=1000 MUTATION_COUNT=5000 WRITER_COUNT=8 WORKERS_CONCURRENCY=4 WORKERS_BATCH_SIZE=128`
 
 `USER_COUNT`, `CUSTOMER_COUNT`, and `ORDER_COUNT` change the source universe. `MUTATION_COUNT` controls how many live writes/deltas/jobs are created. If you only increase `CUSTOMER_COUNT` or `ORDER_COUNT`, the run has a larger pool to choose from but the same number of mutations.
 

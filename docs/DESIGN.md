@@ -1,10 +1,10 @@
 # DeltaFlow Design
 
-> Status: v0.8.0 latest-state design with CLI runtime wiring.
+> Status: v0.9.0 latest-state design with CLI runtime wiring.
 >
 > Goal: keep DeltaFlow small, explicit, and clear.
 >
-> DeltaFlow v0.8.0 exposes the latest-state worker contract through public Go APIs,
+> DeltaFlow v0.9.0 exposes the latest-state worker contract through public Go APIs,
 > with in-memory and durable Postgres Delta and SyncJob stores plus explicit
 > startup runtime registration for projector/applier wiring.
 > A Sync is not a graph, not a connector registry, not a multi-target fan-out
@@ -50,9 +50,9 @@ Delta Ghost handling
 
 ---
 
-## 2. Non-goals for current scope (v0.8.0)
+## 2. Non-goals for current scope (v0.9.0)
 
-DeltaFlow v0.8.0 does not include:
+DeltaFlow v0.9.0 does not include:
 
 ```text
 CDC as the primary abstraction

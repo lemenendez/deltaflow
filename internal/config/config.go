@@ -35,6 +35,7 @@ type StoreConfig struct {
 type WorkersConfig struct {
 	Concurrency int    `koanf:"concurrency" validate:"required,gt=0"`
 	LeaseTTL    string `koanf:"lease_ttl" validate:"required"`
+	BatchSize   *int   `koanf:"batch_size" validate:"omitempty,gt=0"`
 	PullSize    *int   `koanf:"pull_size" validate:"omitempty,gt=0"`
 	MaxAttempts *int   `koanf:"max_attempts" validate:"omitempty,gt=0"`
 }
@@ -203,6 +204,7 @@ func configFieldName(namespace string) string {
 		"DSN":            "dsn",
 		"Concurrency":    "concurrency",
 		"LeaseTTL":       "lease_ttl",
+		"BatchSize":      "batch_size",
 		"PullSize":       "pull_size",
 		"MaxAttempts":    "max_attempts",
 		"Name":           "name",

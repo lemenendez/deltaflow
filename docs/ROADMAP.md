@@ -80,6 +80,8 @@ v0.9.0   Worker throughput + batching
            workers.concurrency=N
            workers.batch_size=M
          - validate with large playground runs using fixed seed/source universe/mutation count
+         - plan doc: docs/PLAN_v0.9.0.md
+         - release notes draft: docs/RELEASE_NOTES_V0.9.0.md
 
 v0.10.0  Redis/Postgres appliers
 

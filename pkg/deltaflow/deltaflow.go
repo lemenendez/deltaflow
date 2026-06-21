@@ -133,7 +133,19 @@ type JobStore interface {
 
 	MarkRetrying(ctx context.Context, jobID SyncJobID, workerID string, err error, nextRunAt time.Time) error
 
+	// RequeueClaimed releases a currently-owned processing lease and moves the job
+	// back to retrying without incrementing attempt_count.
+	RequeueClaimed(ctx context.Context, jobID SyncJobID, workerID string, reason error, nextRunAt time.Time) error
+
 	MarkDead(ctx context.Context, jobID SyncJobID, workerID string, err error) error
+}
+
+// JobStoreBatchClaims exposes optional batch-claim support.
+// Implementations may be type-asserted from JobStore where supported.
+type JobStoreBatchClaims interface {
+	// ClaimNextBatch claims up to limit jobs in claim order for the provided sync.
+	// A non-positive limit returns no rows.
+	ClaimNextBatch(ctx context.Context, syncID SyncID, workerID string, limit int, lockFor time.Duration) ([]*SyncJob, error)
 }
 
 // JobLeaseQueries exposes optional operational lease query helpers.
