@@ -152,12 +152,12 @@ pipelines:
 		{
 			name:        "run command rejects blank dsn with clear error",
 			args:        []string{"run", "--config", blankDSNConfig},
-			wantErrText: "run requires store.dsn to be set for store.type=postgres",
+			wantErrText: "run requires store.dsn to be set",
 		},
 		{
 			name:        "run command rejects unsupported store type",
 			args:        []string{"run", "--config", unsupportedStoreConfig},
-			wantErrText: "store.type must be postgres",
+			wantErrText: "store.type must be postgres or sqlite",
 		},
 	}
 

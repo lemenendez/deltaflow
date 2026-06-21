@@ -88,8 +88,8 @@
 - [ ] Intentionally single-node / single-worker support only
 - [ ] No distributed worker coordination
 - [ ] No multiple competing worker processes
-- [ ] Enforce or clearly document unsupported settings: workers.concurrency > 1, multiple worker processes, distributed lease ownership
-- [ ] Support transactional enqueue when application tables and DeltaFlow tables live in the same SQLite database
+- [ ] Enforce and clearly message unsupported settings: workers.concurrency > 1, multiple worker processes, distributed lease ownership
+- [ ] Support manual application enqueue API: same-transaction enqueue when source writes share the DB, and documented cross-database enqueue orchestration when they do not
 - [ ] Document intended use cases: local development, embedded apps, demos, local/single-tenant disk mode
 - [ ] Document non-goals: not for production worker fleets, not for multiple hosts, not for high-throughput distributed sync, not a replacement for Postgres durable stores
 - [ ] Add SQLite playground: local app write -> SQLite Delta enqueue -> single worker -> simple applier

@@ -48,6 +48,15 @@ dead SyncJobs
 Delta Ghost handling
 ```
 
+### 1.2 SQLite runtime guardrails (v0.10 direction)
+
+For SQLite usage, DeltaFlow is intentionally a single-node and single-worker runtime. This keeps behavior predictable with SQLite locking and avoids implying distributed coordination semantics.
+
+- one worker process per SQLite database
+- workers.concurrency must be 1
+- no multiple competing worker processes
+- when a second worker starts, fail fast with a clear startup error
+
 ---
 
 ## 2. Non-goals for current scope (v0.9.0)

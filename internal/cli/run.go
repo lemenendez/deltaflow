@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,10 +12,13 @@ import (
 	"github.com/lemenendez/deltaflow/internal/config"
 	"github.com/lemenendez/deltaflow/pkg/connectors"
 	pgstore "github.com/lemenendez/deltaflow/pkg/connectors/postgres"
+	sqlitestore "github.com/lemenendez/deltaflow/pkg/connectors/sqlite"
+	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
 	"github.com/spf13/cobra"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "modernc.org/sqlite"
 )
 
 func newRunCommand(opts *options) *cobra.Command {
@@ -56,37 +60,83 @@ func newRunCommand(opts *options) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			if strings.TrimSpace(cfg.Store.Type) != "postgres" {
-				return fmt.Errorf("run requires store.type=postgres")
+			storeType := strings.TrimSpace(cfg.Store.Type)
+			if storeType != "postgres" && storeType != "sqlite" {
+				return fmt.Errorf("run requires store.type=postgres or store.type=sqlite")
 			}
 			dsn := strings.TrimSpace(cfg.Store.DSN)
 			if dsn == "" {
-				return fmt.Errorf("run requires store.dsn to be set for store.type=postgres")
+				return fmt.Errorf("run requires store.dsn to be set")
+			}
+			if storeType == "sqlite" && cfg.Workers.Concurrency != 1 {
+				return fmt.Errorf("sqlite supports only workers.concurrency=1")
 			}
 
-			db, err := sql.Open("pgx", dsn)
+			driverName := "pgx"
+			if storeType == "sqlite" {
+				driverName = "sqlite"
+			}
+
+			db, err := sql.Open(driverName, dsn)
 			if err != nil {
 				return err
 			}
 			defer db.Close()
 
 			if err := db.PingContext(ctx); err != nil {
+				if storeType == "sqlite" {
+					return fmt.Errorf("connect sqlite: %w", err)
+				}
 				return fmt.Errorf("connect postgres: %w", err)
 			}
 
-			deltaStore := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
-			jobCfg := pgstore.JobStoreConfig{}
-			if cfg.Workers.MaxAttempts != nil {
-				jobCfg.MaxAttempts = *cfg.Workers.MaxAttempts
+			var (
+				jobStore      deltaflow.JobStore
+				dispatchStore deltaflow.DispatchStore
+			)
+
+			if storeType == "postgres" {
+				deltaStore := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
+				jobCfg := pgstore.JobStoreConfig{}
+				if cfg.Workers.MaxAttempts != nil {
+					jobCfg.MaxAttempts = *cfg.Workers.MaxAttempts
+				}
+				job := pgstore.NewJobStore(db, jobCfg)
+				jobStore = job
+				dispatchStore = pgstore.NewDispatchStore(deltaStore, job, pgstore.DispatchStoreConfig{})
+			} else {
+				if _, err := sqlitestore.ApplyMigrations(ctx, db); err != nil {
+					return err
+				}
+
+				releaseLock, err := sqlitestore.AcquireWorkerLock(ctx, db, workerID, leaseTTL)
+				if err != nil {
+					if errors.Is(err, sqlitestore.ErrWorkerAlreadyRunning) {
+						return fmt.Errorf("sqlite worker already running for this database; stop the other worker or use postgres for multi-worker deployments")
+					}
+					return err
+				}
+				defer func() {
+					releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+					defer cancelRelease()
+					_ = releaseLock(releaseCtx)
+				}()
+
+				deltaStore := sqlitestore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
+				jobCfg := sqlitestore.JobStoreConfig{}
+				if cfg.Workers.MaxAttempts != nil {
+					jobCfg.MaxAttempts = *cfg.Workers.MaxAttempts
+				}
+				job := sqlitestore.NewJobStore(db, jobCfg)
+				jobStore = job
+				dispatchStore = sqlitestore.NewDispatchStore(deltaStore, job, sqlitestore.DispatchStoreConfig{})
 			}
-			jobStore := pgstore.NewJobStore(db, jobCfg)
-			dispatchStore := pgstore.NewDispatchStore(deltaStore, jobStore, pgstore.DispatchStoreConfig{})
 
 			pullSize, batchSize := workerSizing(cfg.Workers)
 
 			runtimeCfg := &runtimepkg.BuildConfig{
 				Store: runtimepkg.BuildStoreConfig{
-					Type: strings.TrimSpace(cfg.Store.Type),
+					Type: storeType,
 					DSN:  dsn,
 				},
 				Pipelines: make([]runtimepkg.BuildPipelineConfig, 0, len(cfg.Pipelines)),
@@ -99,16 +149,12 @@ func newRunCommand(opts *options) *cobra.Command {
 						Type:           p.Source.Type,
 						ProjectionType: p.Source.ProjectionType,
 					},
-					Projector: runtimepkg.BuildProjectorConfig{
-						Name: p.Projector.Name,
-					},
+					Projector: runtimepkg.BuildProjectorConfig{Name: p.Projector.Name},
 					Target: runtimepkg.BuildTargetConfig{
 						Type:  p.Target.Type,
 						Index: p.Target.Index,
 					},
-					Applier: runtimepkg.BuildApplierConfig{
-						Mode: p.Applier.Mode,
-					},
+					Applier: runtimepkg.BuildApplierConfig{Mode: p.Applier.Mode},
 				})
 			}
 
