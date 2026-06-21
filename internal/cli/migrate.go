@@ -39,6 +39,7 @@ func newMigrateCommand(opts *options) *cobra.Command {
 				return err
 			}
 			defer db.Close()
+			configurePoolForStoreType(db, storeType)
 
 			if err := db.PingContext(ctx); err != nil {
 				if storeType == "sqlite" {

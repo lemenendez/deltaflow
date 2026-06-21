@@ -29,6 +29,10 @@ func main() {
 	}
 	defer db.Close()
 
+	// Keep one sqlite connection so per-connection PRAGMAs apply consistently.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
 	if err := db.PingContext(ctx); err != nil {
 		log.Fatalf("ping sqlite: %v", err)
 	}

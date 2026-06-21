@@ -85,6 +85,7 @@ func newRunCommand(opts *options) *cobra.Command {
 				return err
 			}
 			defer db.Close()
+			configurePoolForStoreType(db, storeType)
 
 			if err := db.PingContext(runCtx); err != nil {
 				if storeType == "sqlite" {
@@ -301,6 +302,19 @@ func minDuration(a time.Duration, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+func configurePoolForStoreType(db *sql.DB, storeType string) {
+	if db == nil {
+		return
+	}
+	if strings.TrimSpace(storeType) != "sqlite" {
+		return
+	}
+
+	// Keep sqlite on one underlying connection so pragmas and lock state are consistent.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 }
 
 func workerSizing(workers config.WorkersConfig) (pullSize int, batchSize int) {

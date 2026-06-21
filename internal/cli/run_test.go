@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/lemenendez/deltaflow/internal/config"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestWorkerSizingDefaultsPullSizeToUnsetAndBatchSizeToOne(t *testing.T) {
@@ -98,5 +101,35 @@ func TestSQLiteHeartbeatWatcherIgnoresClosedChannelWithoutError(t *testing.T) {
 	}
 	if cancelled {
 		t.Fatal("cancel callback called unexpectedly")
+	}
+}
+
+func TestConfigurePoolForStoreTypeSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	configurePoolForStoreType(db, "sqlite")
+
+	stats := db.Stats()
+	if stats.MaxOpenConnections != 1 {
+		t.Fatalf("MaxOpenConnections = %d, want 1", stats.MaxOpenConnections)
+	}
+}
+
+func TestConfigurePoolForStoreTypeNonSQLiteUnchanged(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	configurePoolForStoreType(db, "postgres")
+
+	stats := db.Stats()
+	if stats.MaxOpenConnections != 0 {
+		t.Fatalf("MaxOpenConnections = %d, want 0", stats.MaxOpenConnections)
 	}
 }
