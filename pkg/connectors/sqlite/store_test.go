@@ -165,6 +165,54 @@ func TestAcquireWorkerLockSingleton(t *testing.T) {
 	}
 }
 
+func TestDeltaStoreEnqueueInTxCommitAndRollback(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewDeltaStore(db, connectors.DeltaStoreConfig{})
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx commit path: %v", err)
+	}
+	inserted, err := store.EnqueueInTx(ctx, tx, deltaflow.Delta{
+		SyncID:         "contacts-sync",
+		Origin:         deltaflow.OriginOperationUpdated,
+		ProjectionType: "contact",
+		ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(`"c-commit"`)},
+	})
+	if err != nil {
+		t.Fatalf("EnqueueInTx commit path error: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
+	if _, ok, err := store.Get(ctx, inserted.ID); err != nil || !ok {
+		t.Fatalf("Get after commit = (%v, %v), want ok", err, ok)
+	}
+
+	tx, err = db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx rollback path: %v", err)
+	}
+	rolledBack, err := store.EnqueueInTx(ctx, tx, deltaflow.Delta{
+		SyncID:         "contacts-sync",
+		Origin:         deltaflow.OriginOperationUpdated,
+		ProjectionType: "contact",
+		ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(`"c-rollback"`)},
+	})
+	if err != nil {
+		t.Fatalf("EnqueueInTx rollback path error: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback error: %v", err)
+	}
+	if _, ok, err := store.Get(ctx, rolledBack.ID); err != nil {
+		t.Fatalf("Get after rollback error: %v", err)
+	} else if ok {
+		t.Fatal("rolled back delta still visible")
+	}
+}
+
 func openSQLiteTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 

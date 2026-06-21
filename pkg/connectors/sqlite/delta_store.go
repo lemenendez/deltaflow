@@ -19,7 +19,26 @@ func NewDeltaStore(db *sql.DB, cfg connectors.DeltaStoreConfig) *DeltaStore {
 	return &DeltaStore{DeltaStoreBase: connectors.NewDeltaStoreBase(db, cfg)}
 }
 
+type execContextExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+type queryRowContextExecutor interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 func (s *DeltaStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (*deltaflow.Delta, error) {
+	return s.enqueue(ctx, s.DB, s.DB, delta)
+}
+
+func (s *DeltaStore) EnqueueInTx(ctx context.Context, tx *sql.Tx, delta deltaflow.Delta) (*deltaflow.Delta, error) {
+	if tx == nil {
+		return nil, errors.New("delta store requires transaction")
+	}
+	return s.enqueue(ctx, tx, tx, delta)
+}
+
+func (s *DeltaStore) enqueue(ctx context.Context, exec execContextExecutor, queryer queryRowContextExecutor, delta deltaflow.Delta) (*deltaflow.Delta, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -36,7 +55,7 @@ func (s *DeltaStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (*delta
 		return nil, err
 	}
 
-	_, err = s.DB.ExecContext(ctx, `
+	_, err = exec.ExecContext(ctx, `
 INSERT INTO deltaflow_deltas (
 	id,
 	sync_id,
@@ -65,7 +84,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		return nil, err
 	}
 
-	inserted, ok, err := s.Get(ctx, deltaflow.DeltaID(id))
+	inserted, ok, err := s.getWithQueryer(ctx, queryer, deltaflow.DeltaID(id))
 	if err != nil {
 		return nil, err
 	}
@@ -76,11 +95,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 }
 
 func (s *DeltaStore) Get(ctx context.Context, deltaID deltaflow.DeltaID) (*deltaflow.Delta, bool, error) {
+	return s.getWithQueryer(ctx, s.DB, deltaID)
+}
+
+func (s *DeltaStore) getWithQueryer(ctx context.Context, queryer queryRowContextExecutor, deltaID deltaflow.DeltaID) (*deltaflow.Delta, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
 
-	row := s.DB.QueryRowContext(ctx, `
+	row := queryer.QueryRowContext(ctx, `
 SELECT
 	id,
 	sync_id,
@@ -202,11 +225,7 @@ func (s *DeltaStore) MarkDispatched(ctx context.Context, deltaID deltaflow.Delta
 	return s.markDispatchedTx(ctx, s.DB, deltaID, time.Now().UTC())
 }
 
-type sqlExecutor interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
-func (s *DeltaStore) markDispatchedTx(ctx context.Context, exec sqlExecutor, deltaID deltaflow.DeltaID, at time.Time) error {
+func (s *DeltaStore) markDispatchedTx(ctx context.Context, exec execContextExecutor, deltaID deltaflow.DeltaID, at time.Time) error {
 	res, err := exec.ExecContext(ctx, `
 UPDATE deltaflow_deltas
 SET

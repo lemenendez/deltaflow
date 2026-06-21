@@ -82,20 +82,20 @@
 - [ ] Release notes draft: [docs/RELEASE_NOTES_V0.9.0.md](docs/RELEASE_NOTES_V0.9.0.md)
 
 ## v0.10.0 - SQLite single-node durable stores
-- [ ] SQLite DeltaStore implementation
-- [ ] SQLite JobStore implementation
-- [ ] SQLite schema: deltaflow_deltas + deltaflow_sync_jobs
-- [ ] Intentionally single-node / single-worker support only
-- [ ] No distributed worker coordination
-- [ ] No multiple competing worker processes
-- [ ] Enforce and clearly message unsupported settings: workers.concurrency > 1, multiple worker processes, distributed lease ownership
-- [ ] Support manual application enqueue API: same-transaction enqueue when source writes share the DB, and documented cross-database enqueue orchestration when they do not
-- [ ] Document intended use cases: local development, embedded apps, demos, local/single-tenant disk mode
-- [ ] Document non-goals: not for production worker fleets, not for multiple hosts, not for high-throughput distributed sync, not a replacement for Postgres durable stores
-- [ ] Add SQLite playground: local app write -> SQLite Delta enqueue -> single worker -> simple applier
-- [ ] Add SQLite store conformance tests for supported single-worker behavior
-- [ ] Plan doc: [docs/PLAN_v0.10.0.md](docs/PLAN_v0.10.0.md)
-- [ ] Release notes draft: [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md)
+- [x] SQLite DeltaStore implementation
+- [x] SQLite JobStore implementation
+- [x] SQLite schema: deltaflow_deltas + deltaflow_sync_jobs
+- [x] Intentionally single-node / single-worker support only
+- [x] No distributed worker coordination
+- [x] No multiple competing worker processes
+- [x] Enforce and clearly message unsupported settings: workers.concurrency > 1, multiple worker processes, distributed lease ownership
+- [x] Support manual application enqueue API: same-transaction enqueue when source writes share the DB, and documented cross-database enqueue orchestration when they do not
+- [x] Document intended use cases: local development, embedded apps, demos, local/single-tenant disk mode
+- [x] Document non-goals: not for production worker fleets, not for multiple hosts, not for high-throughput distributed sync, not a replacement for Postgres durable stores
+- [x] Add SQLite playground: local app write -> SQLite Delta enqueue -> single worker -> simple applier
+- [x] Add SQLite store conformance tests for supported single-worker behavior
+- [x] Plan doc: [docs/PLAN_v0.10.0.md](docs/PLAN_v0.10.0.md)
+- [x] Release notes draft: [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md)
 
 ## v0.11.0 - Redis applier
 - [ ] Concrete Redis ProjectionApplier package

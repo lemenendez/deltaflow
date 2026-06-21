@@ -118,6 +118,29 @@ pipelines:
     applier:
       mode: upsert
 `)
+	sqliteConfig := writeCLIConfig(t, `
+store:
+  type: sqlite
+  dsn: file:test-validate.db
+
+workers:
+  concurrency: 1
+  lease_ttl: 30s
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`)
 	tests := []struct {
 		name        string
 		args        []string
@@ -158,6 +181,11 @@ pipelines:
 			name:        "run command rejects unsupported store type",
 			args:        []string{"run", "--config", unsupportedStoreConfig},
 			wantErrText: "store.type must be postgres or sqlite",
+		},
+		{
+			name:       "validate sqlite emits single-worker notes",
+			args:       []string{"validate", "--config", sqliteConfig},
+			wantOutput: "config OK\nnote: sqlite supports only workers.concurrency=1\nnote: sqlite does not support multiple competing worker processes\n",
 		},
 	}
 

@@ -9,7 +9,7 @@ This release prioritizes operational clarity over throughput: SQLite support is 
 - Added SQLite durable store path for Delta and SyncJob persistence.
 - Added SQLite schema/migration path for DeltaFlow tables.
 - Added SQLite-focused tests for contract compatibility in single-worker mode.
-- Added docs and examples for local/embedded SQLite usage.
+- Added docs and examples for local/embedded SQLite usage, including `docs/SQLITE.md` and `playground/05-sqlite`.
 
 ## Transactional Enqueue Clarification
 
@@ -56,6 +56,7 @@ Rationale:
 - Use `store.type=sqlite` with a SQLite DSN/path.
 - Keep `workers.concurrency=1`.
 - Prefer WAL mode and a configured busy timeout for better local stability.
+- Use `EnqueueInTx` when source writes and DeltaFlow tables share the same SQLite database transaction.
 
 ## Guardrail Messages
 

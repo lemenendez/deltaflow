@@ -44,9 +44,9 @@ Future reconsideration:
 - [x] Add connector wiring/docs for `store.type=sqlite`.
 - [x] Enforce runtime/config guardrails for single-worker operation.
 - [x] Add contract/conformance tests for supported SQLite behavior.
-- [ ] Add playground coverage for SQLite single-worker mode.
-- [ ] Publish migration and operational docs for SQLite limits.
-- [ ] Document and exemplify manual enqueue patterns from application code (same-DB transaction and cross-DB explicit enqueue).
+- [x] Add playground coverage for SQLite single-worker mode.
+- [x] Publish migration and operational docs for SQLite limits.
+- [x] Document and exemplify manual enqueue patterns from application code (same-DB transaction and cross-DB explicit enqueue).
 
 ## Postgres API Usage vs SQLite Implications
 
@@ -104,18 +104,18 @@ Future reconsideration:
 ## Config and Guardrails
 
 - [x] Allow `store.type=sqlite` in config validation.
-- [ ] Reject/guard unsupported settings for SQLite:
+- [x] Reject/guard unsupported settings for SQLite:
   - [x] `workers.concurrency != 1`
   - [x] multiple DeltaFlow worker processes against the same DB
 - [x] Add singleton worker startup guard for SQLite (DB-backed lock/lease) so a second worker fails fast on startup.
-- [ ] Add fail-fast user-facing messages in `validate` and `run` paths:
+- [x] Add fail-fast user-facing messages in `validate` and `run` paths:
   - [x] `sqlite supports only workers.concurrency=1`
-  - [ ] `sqlite does not support multiple competing worker processes`
+  - [x] `sqlite does not support multiple competing worker processes`
   - [x] `sqlite worker already running for this database; stop the other worker or use postgres for multi-worker deployments`
-- [ ] Document recommended SQLite runtime settings:
-  - [ ] WAL mode
-  - [ ] busy timeout
-  - [ ] single writer expectation
+- [x] Document recommended SQLite runtime settings:
+  - [x] WAL mode
+  - [x] busy timeout
+  - [x] single writer expectation
 
 ## Testing Plan
 
@@ -127,10 +127,10 @@ Future reconsideration:
 
 ## Acceptance Criteria
 
-- [ ] SQLite stores pass core contract tests in single-worker mode.
-- [ ] Worker run path is stable and deterministic with `workers.concurrency=1`.
-- [ ] Config and docs clearly state unsupported multi-worker/multi-goroutine operation.
-- [ ] Existing Postgres behavior remains unchanged.
+- [x] SQLite stores pass core contract tests in single-worker mode.
+- [x] Worker run path is stable and deterministic with `workers.concurrency=1`.
+- [x] Config and docs clearly state unsupported multi-worker/multi-goroutine operation.
+- [x] Existing Postgres behavior remains unchanged.
 
 ## Out of Scope
 
