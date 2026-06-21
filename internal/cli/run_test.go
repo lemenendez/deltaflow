@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -52,5 +53,50 @@ func TestSQLiteLockHeartbeatInterval(t *testing.T) {
 				t.Fatalf("sqliteLockHeartbeatInterval(%v) = %v, want %v", tt.leaseTTL, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSQLiteHeartbeatWatcherRetainsError(t *testing.T) {
+	errCh := make(chan error, 1)
+	heartbeatErr := errors.New("heartbeat failed")
+	errCh <- heartbeatErr
+	close(errCh)
+
+	cancelled := make(chan struct{}, 1)
+	w := startSQLiteHeartbeatWatcher(errCh, func() {
+		select {
+		case cancelled <- struct{}{}:
+		default:
+		}
+	})
+	w.wait()
+
+	if got := w.err(); !errors.Is(got, heartbeatErr) {
+		t.Fatalf("watcher.err() = %v, want %v", got, heartbeatErr)
+	}
+	if got := w.err(); !errors.Is(got, heartbeatErr) {
+		t.Fatalf("watcher.err() second read = %v, want %v", got, heartbeatErr)
+	}
+
+	select {
+	case <-cancelled:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("cancel callback was not invoked")
+	}
+}
+
+func TestSQLiteHeartbeatWatcherIgnoresClosedChannelWithoutError(t *testing.T) {
+	errCh := make(chan error)
+	close(errCh)
+
+	cancelled := false
+	w := startSQLiteHeartbeatWatcher(errCh, func() { cancelled = true })
+	w.wait()
+
+	if got := w.err(); got != nil {
+		t.Fatalf("watcher.err() = %v, want nil", got)
+	}
+	if cancelled {
+		t.Fatal("cancel callback called unexpectedly")
 	}
 }

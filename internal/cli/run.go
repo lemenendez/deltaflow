@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lemenendez/deltaflow/internal/config"
@@ -93,11 +94,12 @@ func newRunCommand(opts *options) *cobra.Command {
 			}
 
 			var (
-				jobStore      deltaflow.JobStore
-				dispatchStore deltaflow.DispatchStore
-				lockErrCh     <-chan error
-				stopHeartbeat func()
+				jobStore       deltaflow.JobStore
+				dispatchStore  deltaflow.DispatchStore
+				stopHeartbeat  func()
+				heartbeatWatch *sqliteHeartbeatWatcher
 			)
+			stopHeartbeat = func() {}
 
 			if storeType == "postgres" {
 				deltaStore := pgstore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
@@ -126,14 +128,11 @@ func newRunCommand(opts *options) *cobra.Command {
 					_ = releaseLock(releaseCtx)
 				}()
 
+				var lockErrCh <-chan error
 				stopHeartbeat, lockErrCh = startSQLiteWorkerLockHeartbeat(runCtx, db, workerID, leaseTTL)
+				heartbeatWatch = startSQLiteHeartbeatWatcher(lockErrCh, cancelRun)
 				defer stopHeartbeat()
-				go func() {
-					err, ok := <-lockErrCh
-					if ok && err != nil {
-						cancelRun()
-					}
-				}()
+				defer heartbeatWatch.wait()
 
 				deltaStore := sqlitestore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
 				jobCfg := sqlitestore.JobStoreConfig{}
@@ -186,17 +185,23 @@ func newRunCommand(opts *options) *cobra.Command {
 			}
 
 			runErr := runtimepkg.RunOnce(runCtx, built)
-			if lockErr := firstHeartbeatError(lockErrCh); lockErr != nil {
-				if runErr == nil || errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
-					return lockErr
+			stopHeartbeat()
+			if heartbeatWatch != nil {
+				heartbeatWatch.wait()
+				if lockErr := heartbeatWatch.err(); lockErr != nil {
+					if runErr == nil || errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+						return lockErr
+					}
 				}
 			}
 			if runErr != nil {
 				return runErr
 			}
 
-			if err := firstHeartbeatError(lockErrCh); err != nil {
-				return err
+			if heartbeatWatch != nil {
+				if err := heartbeatWatch.err(); err != nil {
+					return err
+				}
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "run complete: processed %d pipeline(s)\n", len(built.Pipelines))
@@ -253,19 +258,42 @@ func sqliteLockHeartbeatInterval(leaseTTL time.Duration) time.Duration {
 	return half
 }
 
-func firstHeartbeatError(errCh <-chan error) error {
-	if errCh == nil {
-		return nil
-	}
-	select {
-	case err, ok := <-errCh:
-		if !ok {
-			return nil
+type sqliteHeartbeatWatcher struct {
+	done chan struct{}
+	mu   sync.Mutex
+	errV error
+}
+
+func startSQLiteHeartbeatWatcher(errCh <-chan error, cancelRun context.CancelFunc) *sqliteHeartbeatWatcher {
+	w := &sqliteHeartbeatWatcher{done: make(chan struct{})}
+	go func() {
+		defer close(w.done)
+		err, ok := <-errCh
+		if !ok || err == nil {
+			return
 		}
-		return err
-	default:
+		w.mu.Lock()
+		w.errV = err
+		w.mu.Unlock()
+		cancelRun()
+	}()
+	return w
+}
+
+func (w *sqliteHeartbeatWatcher) wait() {
+	if w == nil {
+		return
+	}
+	<-w.done
+}
+
+func (w *sqliteHeartbeatWatcher) err() error {
+	if w == nil {
 		return nil
 	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.errV
 }
 
 func minDuration(a time.Duration, b time.Duration) time.Duration {
