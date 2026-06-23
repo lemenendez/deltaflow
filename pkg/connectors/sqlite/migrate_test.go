@@ -36,3 +36,32 @@ func TestApplyMigrationsCreatesTables(t *testing.T) {
 		}
 	}
 }
+
+func TestExecMigrationSQLRollsBackOnError(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	defer db.Close()
+
+	// Force a failure after BEGIN to simulate a partial migration script.
+	err = execMigrationSQL(context.Background(), db, `
+BEGIN;
+SELECT definitely_missing_function();
+COMMIT;
+`)
+	if err == nil {
+		t.Fatal("execMigrationSQL error = nil, want failure")
+	}
+
+	// Verify the same pooled connection can still run a BEGIN/COMMIT script.
+	if err := execMigrationSQL(context.Background(), db, `
+BEGIN;
+CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY);
+COMMIT;
+`); err != nil {
+		t.Fatalf("execMigrationSQL after failure error: %v", err)
+	}
+}

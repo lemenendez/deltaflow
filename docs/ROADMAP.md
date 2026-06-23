@@ -3,7 +3,7 @@
 ## v0.1.0 - Skeleton + vocabulary + DESIGN.md
 - [ ] Skeleton
 - [ ] Vocabulary
-- [ ] Initial [docs/DESIGN.md](docs/DESIGN.md)
+- [ ] Initial [DESIGN.md](DESIGN.md)
 
 ## v0.2.0 - Core domain model + in-memory stores
 - [ ] Intentionally non-durable milestone
@@ -78,8 +78,8 @@
 - [ ] Benchmark against playground baseline: one-job-per-RunOnce drain time vs N routines x M batch size
 - [ ] Expose config in CLI/YAML: workers.concurrency=N and workers.batch_size=M
 - [ ] Validate with large playground runs using fixed seed/source universe/mutation count
-- [ ] Plan doc: [docs/PLAN_v0.9.0.md](docs/PLAN_v0.9.0.md)
-- [ ] Release notes draft: [docs/RELEASE_NOTES_V0.9.0.md](docs/RELEASE_NOTES_V0.9.0.md)
+- [ ] Plan doc: [PLAN_v0.9.0.md](PLAN_v0.9.0.md)
+- [ ] Release notes draft: [RELEASE_NOTES_V0.9.0.md](RELEASE_NOTES_V0.9.0.md)
 
 ## v0.10.0 - SQLite single-node durable stores
 - [x] SQLite DeltaStore implementation
@@ -94,8 +94,8 @@
 - [x] Document non-goals: not for production worker fleets, not for multiple hosts, not for high-throughput distributed sync, not a replacement for Postgres durable stores
 - [x] Add SQLite playground: local app write -> SQLite Delta enqueue -> single worker -> simple applier
 - [x] Add SQLite store conformance tests for supported single-worker behavior
-- [x] Plan doc: [docs/PLAN_v0.10.0.md](docs/PLAN_v0.10.0.md)
-- [x] Release notes draft: [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md)
+- [x] Plan doc: [PLAN_v0.10.0.md](PLAN_v0.10.0.md)
+- [x] Release notes draft: [RELEASE_NOTES_V0.10.0.md](RELEASE_NOTES_V0.10.0.md)
 
 ## v0.11.0 - Redis applier
 - [ ] Concrete Redis ProjectionApplier package
@@ -108,8 +108,8 @@
 - [ ] Focused tests around operation mapping and error handling
 - [ ] Redis playground: source write -> transactional Delta enqueue -> async Redis cache sync
 - [ ] Document Redis as a cache projection target
-- [ ] Plan doc: [docs/PLAN_v0.11.0.md](docs/PLAN_v0.11.0.md)
-- [ ] Release notes draft: [docs/RELEASE_NOTES_V0.11.0.md](docs/RELEASE_NOTES_V0.11.0.md)
+- [ ] Plan doc: [PLAN_v0.11.0.md](PLAN_v0.11.0.md)
+- [ ] Release notes draft: [RELEASE_NOTES_V0.11.0.md](RELEASE_NOTES_V0.11.0.md)
 
 ## v0.12.0 - Backfills
 - [ ] Define backfill API and CLI shape
@@ -121,8 +121,8 @@
 - [ ] Document backfill responsibilities: source enumeration belongs to the application/projector side, while DeltaFlow owns durable enqueue, dispatch, retry, and application
 - [ ] Add backfill playground: seed source records -> run backfill -> observe destination catch up
 - [ ] Include large-source playground scenario with fixed seed/count
-- [ ] Plan doc: [docs/PLAN_v0.12.0.md](docs/PLAN_v0.12.0.md)
-- [ ] Release notes draft: [docs/RELEASE_NOTES_V0.12.0.md](docs/RELEASE_NOTES_V0.12.0.md)
+- [ ] Plan doc: [PLAN_v0.12.0.md](PLAN_v0.12.0.md)
+- [ ] Release notes draft: [RELEASE_NOTES_V0.12.0.md](RELEASE_NOTES_V0.12.0.md)
 
 ## v0.13.0 - Metrics + logs + operational safety
 - [ ] Applier-level telemetry/logging for concrete target appliers: operation, result, retryable, status_code, and latency
@@ -141,11 +141,11 @@
 - [ ] Add minimal operational safety documentation: retries, dead jobs, lease behavior, ghost handling, transactional enqueue, worker shutdown, SQLite single-worker limits, Postgres production recommendations
 - [ ] Add example catalog: Postgres durable store + Elasticsearch, SQLite durable store + fake/simple applier, Postgres durable store + Redis, backfill example
 - [ ] Refresh README
-- [ ] Refresh [docs/DESIGN.md](docs/DESIGN.md)
+- [ ] Refresh [DESIGN.md](DESIGN.md)
 - [ ] Add migration/upgrade notes from pre-v1 versions
 - [ ] Mark unstable or experimental APIs clearly
 - [ ] Prepare v1.0 release checklist
-- [ ] Release notes draft: [docs/RELEASE_NOTES_V0.13.0.md](docs/RELEASE_NOTES_V0.13.0.md)
+- [ ] Release notes draft: [RELEASE_NOTES_V0.13.0.md](RELEASE_NOTES_V0.13.0.md)
 
 ## v1.0.0 - Stable latest_state OSS release
 - [ ] Stable latest_state synchronization model

@@ -40,11 +40,28 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) ([]AppliedMigration, error
 		if err != nil {
 			return nil, err
 		}
-		if _, err := db.ExecContext(ctx, string(sqlBytes)); err != nil {
+		if err := execMigrationSQL(ctx, db, string(sqlBytes)); err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
 		applied = append(applied, AppliedMigration{Name: name})
 	}
 
 	return applied, nil
+}
+
+func execMigrationSQL(ctx context.Context, db *sql.DB, sqlText string) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, sqlText); err != nil {
+		// Migration files manage BEGIN/COMMIT; roll back on this same session
+		// so the pooled connection cannot be returned with an open transaction.
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		return err
+	}
+
+	return nil
 }

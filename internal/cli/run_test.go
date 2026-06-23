@@ -44,7 +44,8 @@ func TestSQLiteLockHeartbeatInterval(t *testing.T) {
 		want     time.Duration
 	}{
 		{name: "non-positive lease", leaseTTL: 0, want: time.Second},
-		{name: "small lease rounds up", leaseTTL: 1200 * time.Millisecond, want: time.Second},
+		{name: "small lease uses half", leaseTTL: 1200 * time.Millisecond, want: 600 * time.Millisecond},
+		{name: "very short lease uses half", leaseTTL: 500 * time.Millisecond, want: 250 * time.Millisecond},
 		{name: "uses half lease", leaseTTL: 8 * time.Second, want: 4 * time.Second},
 		{name: "caps long lease", leaseTTL: 40 * time.Second, want: 10 * time.Second},
 	}

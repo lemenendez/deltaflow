@@ -251,7 +251,7 @@ func sqliteLockHeartbeatInterval(leaseTTL time.Duration) time.Duration {
 	}
 	half := leaseTTL / 2
 	if half < time.Second {
-		return time.Second
+		return half
 	}
 	if half > 10*time.Second {
 		return 10 * time.Second
