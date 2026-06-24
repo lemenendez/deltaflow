@@ -250,6 +250,7 @@ func (s *JobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, 
 	for i := 0; i < limit; i++ {
 		job, err := s.ClaimNext(ctx, syncID, workerID, lockFor)
 		if err != nil {
+			s.requeueClaimedBatch(context.WithoutCancel(ctx), workerID, jobs, err)
 			return nil, err
 		}
 		if job == nil {
@@ -258,6 +259,16 @@ func (s *JobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, 
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
+}
+
+func (s *JobStore) requeueClaimedBatch(ctx context.Context, workerID string, jobs []*deltaflow.SyncJob, reason error) {
+	if len(jobs) == 0 {
+		return
+	}
+	nextRunAt := s.Now()
+	for _, job := range jobs {
+		_ = s.RequeueClaimed(ctx, job.ID, workerID, reason, nextRunAt)
+	}
 }
 
 func (s *JobStore) claimCandidateTx(ctx context.Context, tx *sql.Tx, syncID deltaflow.SyncID, candidateID, workerID string, nowMicros, lockedUntilMicros int64) (bool, error) {

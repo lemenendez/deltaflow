@@ -51,7 +51,7 @@ func TestRenewWorkerLockRejectsLostOwnership(t *testing.T) {
 		_ = releaseA(context.Background())
 	})
 
-	time.Sleep(35 * time.Millisecond)
+	waitForSingletonLockExpiry(t, ctx, db, 2*time.Second, 5*time.Millisecond)
 
 	releaseB, err := AcquireWorkerLock(ctx, db, "worker-b", time.Second)
 	if err != nil {
@@ -64,6 +64,25 @@ func TestRenewWorkerLockRejectsLostOwnership(t *testing.T) {
 	err = RenewWorkerLock(ctx, db, "worker-a", time.Second)
 	if !errors.Is(err, ErrWorkerLockNotOwned) {
 		t.Fatalf("RenewWorkerLock(worker-a) error = %v, want ErrWorkerLockNotOwned", err)
+	}
+}
+
+func waitForSingletonLockExpiry(t *testing.T, ctx context.Context, db *sql.DB, timeout time.Duration, pollInterval time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		expiresAtMicros, err := lockExpiryMicros(ctx, db)
+		if err != nil {
+			t.Fatalf("lockExpiryMicros during wait error: %v", err)
+		}
+		if expiresAtMicros <= microsFromTime(time.Now().UTC()) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("singleton lock did not expire within %v (expires_at_micros=%d)", timeout, expiresAtMicros)
+		}
+		time.Sleep(pollInterval)
 	}
 }
 

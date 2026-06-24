@@ -149,6 +149,102 @@ func TestJobStoreLeaseOwnershipFlow(t *testing.T) {
 	}
 }
 
+func TestJobStoreClaimNextBatchRequeuesOnMidBatchError(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewJobStore(db, JobStoreConfig{})
+
+	claimedFirst, err := store.Create(context.Background(), deltaflow.SyncJob{
+		SyncID:         "contacts-sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "contact",
+		ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(`"c-batch-good"`)},
+	})
+	if err != nil {
+		t.Fatalf("Create good job error: %v", err)
+	}
+
+	now := time.Now().UTC()
+	nowMicros := microsFromTime(now)
+	badID := "job-bad-json"
+	if _, err := db.ExecContext(context.Background(), `
+INSERT INTO deltaflow_sync_jobs (
+	id,
+	sync_id,
+	delta_id,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at_micros,
+	locked_by,
+	locked_until_micros,
+	ghost_detected,
+	synced_at_micros,
+	dead_at_micros,
+	created_at_micros,
+	updated_at_micros
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		badID,
+		"contacts-sync",
+		nil,
+		deltaflow.JobOriginManual,
+		"contact",
+		`{"contact_id":`,
+		"bad-hash",
+		deltaflow.StatePending,
+		0,
+		5,
+		nil,
+		nil,
+		nowMicros+1,
+		nil,
+		nil,
+		0,
+		nil,
+		nil,
+		nowMicros+1,
+		nowMicros+1,
+	); err != nil {
+		t.Fatalf("insert malformed job error: %v", err)
+	}
+
+	jobs, err := store.ClaimNextBatch(context.Background(), "contacts-sync", "w1", 2, 5*time.Second)
+	if err == nil {
+		t.Fatal("ClaimNextBatch error = nil, want malformed row error")
+	}
+	if jobs != nil {
+		t.Fatalf("ClaimNextBatch jobs = %d, want nil on error", len(jobs))
+	}
+
+	requeued, ok, err := store.Get(context.Background(), claimedFirst.ID)
+	if err != nil {
+		t.Fatalf("Get first claimed job error: %v", err)
+	}
+	if !ok {
+		t.Fatal("first claimed job missing after batch error")
+	}
+	if requeued.State != deltaflow.StateRetrying {
+		t.Fatalf("first claimed state = %q, want %q", requeued.State, deltaflow.StateRetrying)
+	}
+
+	var processingCount int
+	if err := db.QueryRowContext(context.Background(), `
+SELECT COUNT(*)
+FROM deltaflow_sync_jobs
+WHERE state = 'processing'`).Scan(&processingCount); err != nil {
+		t.Fatalf("processing count query error: %v", err)
+	}
+	if processingCount != 0 {
+		t.Fatalf("processing jobs = %d, want 0", processingCount)
+	}
+}
+
 func TestClaimCandidateTxRejectsStaleClaimPredicate(t *testing.T) {
 	db := openSQLiteTestDB(t)
 	fixedNow := time.Unix(1_700_000_000, 0).UTC()
