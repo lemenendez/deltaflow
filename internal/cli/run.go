@@ -137,8 +137,8 @@ func newRunCommand(opts *options) *cobra.Command {
 				var lockErrCh <-chan error
 				stopHeartbeat, lockErrCh = startSQLiteWorkerLockHeartbeat(runCtx, db, workerID, leaseTTL)
 				heartbeatWatch = startSQLiteHeartbeatWatcher(lockErrCh, cancelRun)
-				defer stopHeartbeat()
 				defer heartbeatWatch.wait()
+				defer stopHeartbeat()
 
 				deltaStore := sqlitestore.NewDeltaStore(db, connectors.DeltaStoreConfig{})
 				jobCfg := sqlitestore.JobStoreConfig{}
