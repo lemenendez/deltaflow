@@ -134,3 +134,23 @@ func TestConfigurePoolForStoreTypeNonSQLiteUnchanged(t *testing.T) {
 		t.Fatalf("MaxOpenConnections = %d, want 0", stats.MaxOpenConnections)
 	}
 }
+
+func TestSQLiteForeignKeysCanBeEnabled(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+		t.Fatalf("enable foreign keys error: %v", err)
+	}
+
+	var enabled int
+	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&enabled); err != nil {
+		t.Fatalf("query foreign keys pragma error: %v", err)
+	}
+	if enabled != 1 {
+		t.Fatalf("foreign_keys = %d, want 1", enabled)
+	}
+}

@@ -42,6 +42,9 @@ func main() {
 	if _, err := db.ExecContext(ctx, `PRAGMA journal_mode=WAL`); err != nil {
 		log.Fatalf("set WAL mode: %v", err)
 	}
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
+		log.Fatalf("enable foreign keys: %v", err)
+	}
 	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout=5000`); err != nil {
 		log.Fatalf("set busy timeout: %v", err)
 	}

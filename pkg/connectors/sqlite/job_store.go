@@ -243,6 +243,12 @@ LIMIT 1`, syncID, nowMicros, nowMicros).Scan(&candidateID)
 }
 
 func (s *JobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, workerID string, limit int, lockFor time.Duration) ([]*deltaflow.SyncJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if lockFor <= 0 {
+		return nil, deltaflow.ErrInvalidLockFor
+	}
 	if limit <= 0 {
 		return nil, nil
 	}

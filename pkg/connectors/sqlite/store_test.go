@@ -149,6 +149,44 @@ func TestJobStoreLeaseOwnershipFlow(t *testing.T) {
 	}
 }
 
+func TestJobStoreClaimNextBatchValidatesBeforeLimitZero(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewJobStore(db, JobStoreConfig{})
+
+	t.Run("canceled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		jobs, err := store.ClaimNextBatch(ctx, "contacts-sync", "w1", 0, 5*time.Second)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ClaimNextBatch error = %v, want context.Canceled", err)
+		}
+		if jobs != nil {
+			t.Fatalf("ClaimNextBatch jobs = %v, want nil", jobs)
+		}
+	})
+
+	t.Run("invalid lockFor", func(t *testing.T) {
+		jobs, err := store.ClaimNextBatch(context.Background(), "contacts-sync", "w1", 0, 0)
+		if !errors.Is(err, deltaflow.ErrInvalidLockFor) {
+			t.Fatalf("ClaimNextBatch error = %v, want ErrInvalidLockFor", err)
+		}
+		if jobs != nil {
+			t.Fatalf("ClaimNextBatch jobs = %v, want nil", jobs)
+		}
+	})
+
+	t.Run("zero limit still returns nil slice on valid input", func(t *testing.T) {
+		jobs, err := store.ClaimNextBatch(context.Background(), "contacts-sync", "w1", 0, 5*time.Second)
+		if err != nil {
+			t.Fatalf("ClaimNextBatch error = %v, want nil", err)
+		}
+		if jobs != nil {
+			t.Fatalf("ClaimNextBatch jobs = %v, want nil", jobs)
+		}
+	})
+}
+
 func TestJobStoreClaimNextBatchRequeuesOnMidBatchError(t *testing.T) {
 	db := openSQLiteTestDB(t)
 	store := NewJobStore(db, JobStoreConfig{})
@@ -380,6 +418,10 @@ func openSQLiteTestDB(t *testing.T) *sql.DB {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.ExecContext(context.Background(), `PRAGMA foreign_keys=ON`); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
 
 	if _, err := ApplyMigrations(context.Background(), db); err != nil {
 		t.Fatalf("ApplyMigrations error: %v", err)

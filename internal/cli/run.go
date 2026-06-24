@@ -93,6 +93,11 @@ func newRunCommand(opts *options) *cobra.Command {
 				}
 				return fmt.Errorf("connect postgres: %w", err)
 			}
+			if storeType == "sqlite" {
+				if _, err := db.ExecContext(runCtx, `PRAGMA foreign_keys=ON`); err != nil {
+					return fmt.Errorf("enable sqlite foreign keys: %w", err)
+				}
+			}
 
 			var (
 				jobStore       deltaflow.JobStore
