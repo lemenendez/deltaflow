@@ -44,6 +44,7 @@ func TestSQLiteLockHeartbeatInterval(t *testing.T) {
 		want     time.Duration
 	}{
 		{name: "non-positive lease", leaseTTL: 0, want: time.Second},
+		{name: "tiny positive lease clamps above zero", leaseTTL: time.Nanosecond, want: time.Nanosecond},
 		{name: "small lease uses half", leaseTTL: 1200 * time.Millisecond, want: 600 * time.Millisecond},
 		{name: "very short lease uses half", leaseTTL: 500 * time.Millisecond, want: 250 * time.Millisecond},
 		{name: "uses half lease", leaseTTL: 8 * time.Second, want: 4 * time.Second},
@@ -55,6 +56,28 @@ func TestSQLiteLockHeartbeatInterval(t *testing.T) {
 			got := sqliteLockHeartbeatInterval(tt.leaseTTL)
 			if got != tt.want {
 				t.Fatalf("sqliteLockHeartbeatInterval(%v) = %v, want %v", tt.leaseTTL, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSQLiteLockRenewTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		leaseTTL time.Duration
+		want     time.Duration
+	}{
+		{name: "non-positive lease uses 2s floor", leaseTTL: 0, want: 2 * time.Second},
+		{name: "small lease uses 2s floor", leaseTTL: 1200 * time.Millisecond, want: 2 * time.Second},
+		{name: "large lease follows interval", leaseTTL: 20 * time.Second, want: 10 * time.Second},
+		{name: "capped interval remains timeout", leaseTTL: 40 * time.Second, want: 10 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sqliteLockRenewTimeout(tt.leaseTTL)
+			if got != tt.want {
+				t.Fatalf("sqliteLockRenewTimeout(%v) = %v, want %v", tt.leaseTTL, got, tt.want)
 			}
 		})
 	}

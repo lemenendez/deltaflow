@@ -225,7 +225,7 @@ func startSQLiteWorkerLockHeartbeat(parent context.Context, db *sql.DB, workerID
 	errCh := make(chan error, 1)
 	interval := sqliteLockHeartbeatInterval(leaseTTL)
 	ticker := time.NewTicker(interval)
-	renewTimeout := minDuration(interval, 2*time.Second)
+	renewTimeout := sqliteLockRenewTimeout(leaseTTL)
 
 	go func() {
 		defer ticker.Stop()
@@ -255,6 +255,9 @@ func sqliteLockHeartbeatInterval(leaseTTL time.Duration) time.Duration {
 		return time.Second
 	}
 	half := leaseTTL / 2
+	if half <= 0 {
+		return time.Nanosecond
+	}
 	if half < time.Second {
 		return half
 	}
@@ -262,6 +265,14 @@ func sqliteLockHeartbeatInterval(leaseTTL time.Duration) time.Duration {
 		return 10 * time.Second
 	}
 	return half
+}
+
+func sqliteLockRenewTimeout(leaseTTL time.Duration) time.Duration {
+	interval := sqliteLockHeartbeatInterval(leaseTTL)
+	if interval < 2*time.Second {
+		return 2 * time.Second
+	}
+	return interval
 }
 
 type sqliteHeartbeatWatcher struct {
