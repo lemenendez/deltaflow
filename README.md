@@ -159,7 +159,6 @@ For SQLite, `store.type=sqlite` supports only `workers.concurrency=1`.
 ## Docs Index
 
 - Project overview: [docs/DESIGN.md](docs/DESIGN.md)
-- Extended design: [docs/DESIGNFULL.md](docs/DESIGNFULL.md)
 - Connector notes: [docs/CONNECTORS.md](docs/CONNECTORS.md)
 - SQLite guidance: [docs/SQLITE.md](docs/SQLITE.md)
 - Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
