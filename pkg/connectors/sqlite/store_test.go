@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,39 @@ func TestDeltaStoreEnqueuePullAndMarkDispatched(t *testing.T) {
 	}
 }
 
+func TestDeltaStoreEnqueueReturnsErrorWhenReadBackMissing(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewDeltaStore(db, connectors.DeltaStoreConfig{})
+
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TRIGGER deltaflow_test_delete_delta_after_insert
+AFTER INSERT ON deltaflow_deltas
+BEGIN
+	DELETE FROM deltaflow_deltas WHERE id = NEW.id;
+END;`); err != nil {
+		t.Fatalf("create delete-after-insert trigger error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS deltaflow_test_delete_delta_after_insert`)
+	})
+
+	inserted, err := store.Enqueue(context.Background(), deltaflow.Delta{
+		SyncID:         "contacts-sync",
+		Origin:         deltaflow.OriginOperationUpdated,
+		ProjectionType: "contact",
+		ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(`"c-missing"`)},
+	})
+	if err == nil {
+		t.Fatal("Enqueue error = nil, want non-nil when read-back row is missing")
+	}
+	if inserted != nil {
+		t.Fatalf("Enqueue returned delta = %#v, want nil", inserted)
+	}
+	if !strings.Contains(err.Error(), "read-back missing") {
+		t.Fatalf("Enqueue error = %v, want read-back missing message", err)
+	}
+}
+
 func TestDispatchStoreIsIdempotentForOutbox(t *testing.T) {
 	db := openSQLiteTestDB(t)
 	deltaStore := NewDeltaStore(db, connectors.DeltaStoreConfig{})
@@ -105,6 +139,89 @@ func TestDispatchStoreIsIdempotentForOutbox(t *testing.T) {
 	}
 }
 
+func TestDispatchStoreDoesNotMaskUnexpectedOutboxInsertConstraintFailure(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	deltaStore := NewDeltaStore(db, connectors.DeltaStoreConfig{})
+	jobStore := NewJobStore(db, JobStoreConfig{})
+	dispatch := NewDispatchStore(deltaStore, jobStore, DispatchStoreConfig{})
+
+	inserted, err := deltaStore.Enqueue(context.Background(), deltaflow.Delta{
+		SyncID:         "contacts-sync",
+		Origin:         deltaflow.OriginOperationUpdated,
+		ProjectionType: "contact",
+		ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(`"c-collision"`)},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue error: %v", err)
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TRIGGER deltaflow_test_force_outbox_job_id_collision
+BEFORE INSERT ON deltaflow_sync_jobs
+WHEN NEW.origin = 'outbox'
+BEGIN
+	INSERT INTO deltaflow_sync_jobs (
+		id,
+		sync_id,
+		delta_id,
+		origin,
+		projection_type,
+		projection_key,
+		projection_key_hash,
+		state,
+		attempt_count,
+		max_attempts,
+		available_at_micros,
+		created_at_micros,
+		updated_at_micros,
+		ghost_detected
+	)
+	VALUES (
+		NEW.id,
+		'other-sync',
+		NULL,
+		'manual',
+		NEW.projection_type,
+		NEW.projection_key,
+		NEW.projection_key_hash,
+		'pending',
+		0,
+		NEW.max_attempts,
+		NEW.available_at_micros,
+		NEW.created_at_micros,
+		NEW.updated_at_micros,
+		0
+	);
+END;`); err != nil {
+		t.Fatalf("create collision trigger error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS deltaflow_test_force_outbox_job_id_collision`)
+	})
+
+	jobs, err := dispatch.DispatchPending(context.Background(), "contacts-sync", 10)
+	if err == nil {
+		t.Fatal("DispatchPending error = nil, want constraint failure")
+	}
+	if jobs != nil {
+		t.Fatalf("DispatchPending jobs = %v, want nil on constraint failure", jobs)
+	}
+
+	updated, ok, err := deltaStore.Get(context.Background(), inserted.ID)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if !ok {
+		t.Fatal("Get ok = false, want true")
+	}
+	if updated.State != deltaflow.DeltaPending {
+		t.Fatalf("delta state = %q, want %q", updated.State, deltaflow.DeltaPending)
+	}
+	if updated.DispatchedAt != nil {
+		t.Fatalf("DispatchedAt = %v, want nil after failed dispatch", updated.DispatchedAt)
+	}
+}
+
 func TestJobStoreLeaseOwnershipFlow(t *testing.T) {
 	db := openSQLiteTestDB(t)
 	store := NewJobStore(db, JobStoreConfig{})
@@ -146,6 +263,39 @@ func TestJobStoreLeaseOwnershipFlow(t *testing.T) {
 	}
 	if updated.State != deltaflow.StateSynced {
 		t.Fatalf("state = %q, want %q", updated.State, deltaflow.StateSynced)
+	}
+}
+
+func TestJobStoreCreateReturnsErrorWhenReadBackMissing(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewJobStore(db, JobStoreConfig{})
+
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TRIGGER deltaflow_test_delete_job_after_insert
+AFTER INSERT ON deltaflow_sync_jobs
+BEGIN
+	DELETE FROM deltaflow_sync_jobs WHERE id = NEW.id;
+END;`); err != nil {
+		t.Fatalf("create delete-after-insert trigger error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS deltaflow_test_delete_job_after_insert`)
+	})
+
+	created, err := store.Create(context.Background(), deltaflow.SyncJob{
+		SyncID:         "contacts-sync",
+		Origin:         deltaflow.JobOriginManual,
+		ProjectionType: "contact",
+		ProjectionKey:  deltaflow.ProjectionKey{"contact_id": json.RawMessage(`"c-missing"`)},
+	})
+	if err == nil {
+		t.Fatal("Create error = nil, want non-nil when read-back row is missing")
+	}
+	if created != nil {
+		t.Fatalf("Create returned job = %#v, want nil", created)
+	}
+	if !strings.Contains(err.Error(), "read-back missing") {
+		t.Fatalf("Create error = %v, want read-back missing message", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lemenendez/deltaflow/pkg/connectors"
@@ -89,7 +90,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		return nil, err
 	}
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("sqlite enqueue delta read-back missing for id %q", id)
 	}
 	return inserted, nil
 }

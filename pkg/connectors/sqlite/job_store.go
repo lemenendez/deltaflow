@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -105,7 +106,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		return nil, err
 	}
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("sqlite create job read-back missing for id %q", id)
 	}
 	return created, nil
 }
@@ -117,8 +118,8 @@ func (s *JobStore) createOutboxFromDeltaTx(ctx context.Context, tx *sql.Tx, delt
 	}
 	nowMicros := microsFromTime(now)
 
-	res, err := tx.ExecContext(ctx, `
-INSERT OR IGNORE INTO deltaflow_sync_jobs (
+	row := tx.QueryRowContext(ctx, `
+INSERT INTO deltaflow_sync_jobs (
 	id,
 	sync_id,
 	delta_id,
@@ -134,7 +135,29 @@ INSERT OR IGNORE INTO deltaflow_sync_jobs (
 	updated_at_micros,
 	ghost_detected
 )
-VALUES (?, ?, ?, 'outbox', ?, ?, ?, 'pending', 0, ?, ?, ?, ?, 0)`,
+VALUES (?, ?, ?, 'outbox', ?, ?, ?, 'pending', 0, ?, ?, ?, ?, 0)
+ON CONFLICT (delta_id) WHERE origin = 'outbox' DO NOTHING
+RETURNING
+	id,
+	sync_id,
+	delta_id,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	state,
+	attempt_count,
+	max_attempts,
+	last_error,
+	last_error_code,
+	available_at_micros,
+	locked_by,
+	locked_until_micros,
+	ghost_detected,
+	synced_at_micros,
+	dead_at_micros,
+	created_at_micros,
+	updated_at_micros`,
 		id,
 		delta.SyncID,
 		delta.ID,
@@ -146,23 +169,8 @@ VALUES (?, ?, ?, 'outbox', ?, ?, ?, 'pending', 0, ?, ?, ?, ?, 0)`,
 		nowMicros,
 		nowMicros,
 	)
-	if err != nil {
-		return nil, false, err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return nil, false, err
-	}
-	if affected == 0 {
-		return nil, false, nil
-	}
 
-	row := tx.QueryRowContext(ctx, syncJobSelectByID, id)
-	job, ok, err := scanSyncJob(row)
-	if err != nil {
-		return nil, false, err
-	}
-	return job, ok, nil
+	return scanSyncJob(row)
 }
 
 func (s *JobStore) Get(ctx context.Context, jobID deltaflow.SyncJobID) (*deltaflow.SyncJob, bool, error) {
