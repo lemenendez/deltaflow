@@ -152,7 +152,7 @@ Runtime registrations are explicit and map-based.
 - `workers.concurrency` controls how many goroutines process jobs per pipeline cycle
 - `workers.batch_size` controls how many jobs each goroutine can claim per cycle
 - `workers.pull_size` is optional; when omitted, dispatch pull size defaults to `concurrency * batch_size`
-- `workers.lock_for` should be sized to exceed worst-case batch drain time
+- `workers.lease_ttl` should be sized to exceed worst-case batch drain time
 
 For SQLite, `store.type=sqlite` supports only `workers.concurrency=1`.
 

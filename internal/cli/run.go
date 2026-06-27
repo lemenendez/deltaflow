@@ -129,7 +129,7 @@ func newRunCommand(opts *options) *cobra.Command {
 					return err
 				}
 				defer func() {
-					releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), 2*time.Second)
+					releaseCtx, cancelRelease := sqliteDetachedCleanupTimeoutContext(runCtx, 2*time.Second)
 					defer cancelRelease()
 					_ = releaseLock(releaseCtx)
 				}()
@@ -318,6 +318,10 @@ func minDuration(a time.Duration, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+func sqliteDetachedCleanupTimeoutContext(_ context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 func configurePoolForStoreType(db *sql.DB, storeType string) {

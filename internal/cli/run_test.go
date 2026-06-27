@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -125,6 +126,27 @@ func TestSQLiteHeartbeatWatcherIgnoresClosedChannelWithoutError(t *testing.T) {
 	}
 	if cancelled {
 		t.Fatal("cancel callback called unexpectedly")
+	}
+}
+
+func TestSQLiteDetachedCleanupTimeoutContextIgnoresParentDeadline(t *testing.T) {
+	parentCtx, cancelParent := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancelParent()
+	<-parentCtx.Done()
+
+	cleanupCtx, cancelCleanup := sqliteDetachedCleanupTimeoutContext(parentCtx, 100*time.Millisecond)
+	defer cancelCleanup()
+
+	if err := cleanupCtx.Err(); err != nil {
+		t.Fatalf("cleanup context err = %v, want nil immediately after creation", err)
+	}
+
+	deadline, ok := cleanupCtx.Deadline()
+	if !ok {
+		t.Fatal("cleanup context has no deadline, want timeout deadline")
+	}
+	if !deadline.After(time.Now()) {
+		t.Fatalf("cleanup deadline = %v, want future deadline", deadline)
 	}
 }
 
