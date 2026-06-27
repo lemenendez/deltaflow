@@ -34,3 +34,4 @@ playground/*/logs/
 # .idea/
 # .vscode/
 docs/DESIGNFULL.md
+.vscode/settings.json

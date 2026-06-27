@@ -1,4 +1,4 @@
-package postgres
+package sqlite
 
 import (
 	"context"
@@ -20,15 +20,9 @@ type AppliedMigration struct {
 	Name string
 }
 
-// ApplyMigrations applies the embedded DeltaFlow Postgres migrations in file
-// name order. The current SQL files are idempotent and can be applied more
-// than once.
 func ApplyMigrations(ctx context.Context, db *sql.DB) ([]AppliedMigration, error) {
 	if db == nil {
-		return nil, fmt.Errorf("postgres migrations require database")
-	}
-	if err := ensureUUIDV7(ctx, db); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sqlite migrations require database")
 	}
 
 	entries, err := fs.ReadDir(migrationsFS, "migrations")
@@ -44,7 +38,6 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) ([]AppliedMigration, error
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
-
 		name := entry.Name()
 		sqlBytes, err := migrationsFS.ReadFile("migrations/" + name)
 		if err != nil {
@@ -67,34 +60,15 @@ func execMigrationSQL(ctx context.Context, db *sql.DB, sqlText string) error {
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, sqlText); err != nil {
-		// Migration files manage their own BEGIN/COMMIT. If a statement fails
-		// after BEGIN, clean up the transaction state on this same session
-		// before returning the connection to database/sql's pool. Use a
-		// detached bounded context so cleanup ignores caller cancellation but
-		// cannot block forever.
+		// Migration files manage BEGIN/COMMIT; roll back on this same session
+		// so the pooled connection cannot be returned with an open transaction.
+		// Use a detached bounded context so cleanup ignores caller cancellation
+		// but cannot block forever.
 		rollbackCtx, cancelRollback := context.WithTimeout(context.Background(), migrationRollbackTimeout)
 		defer cancelRollback()
 		_, _ = conn.ExecContext(rollbackCtx, "ROLLBACK")
 		return err
 	}
 
-	return nil
-}
-
-func ensureUUIDV7(ctx context.Context, db *sql.DB) error {
-	var exists bool
-	if err := db.QueryRowContext(ctx, `SELECT to_regprocedure('uuidv7()') IS NOT NULL`).Scan(&exists); err != nil {
-		return fmt.Errorf("check uuidv7 compatibility: %w", err)
-	}
-	if exists {
-		return nil
-	}
-
-	if _, err := db.ExecContext(ctx, `CREATE EXTENSION IF NOT EXISTS pgcrypto`); err != nil {
-		return fmt.Errorf("prepare uuidv7 compatibility extension: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, `CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid LANGUAGE SQL AS $$ SELECT gen_random_uuid(); $$;`); err != nil {
-		return fmt.Errorf("prepare uuidv7 compatibility function: %w", err)
-	}
 	return nil
 }

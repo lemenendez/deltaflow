@@ -122,8 +122,12 @@ func (c Config) Validate() error {
 		issues = append(issues, validationIssues(err)...)
 	}
 
-	if c.Store.Type != "" && c.Store.Type != "postgres" {
-		issues = append(issues, "store.type must be postgres")
+	if c.Store.Type != "" && c.Store.Type != "postgres" && c.Store.Type != "sqlite" {
+		issues = append(issues, "store.type must be postgres or sqlite")
+	}
+
+	if c.Store.Type == "sqlite" && c.Workers.Concurrency != 1 {
+		issues = append(issues, "sqlite supports only workers.concurrency=1")
 	}
 
 	if c.Workers.LeaseTTL != "" {

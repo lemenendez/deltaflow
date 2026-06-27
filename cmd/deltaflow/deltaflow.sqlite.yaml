@@ -1,0 +1,24 @@
+store:
+  type: sqlite
+  dsn: file:deltaflow.sqlite
+
+workers:
+  concurrency: 1
+  lease_ttl: 30s
+  batch_size: 1
+  max_attempts: 5
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      # Required fixed dispatch/outbox source type; does not imply Postgres is the durable store.
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert

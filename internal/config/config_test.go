@@ -69,7 +69,7 @@ pipelines:
 	}
 
 	for _, want := range []string{
-		"store.type must be postgres",
+		"store.type must be postgres or sqlite",
 		"workers.lease_ttl must be a valid duration",
 		"pipelines[0].source.type must be postgres-outbox",
 		"pipelines[0].target.type must be elasticsearch",
@@ -78,6 +78,70 @@ pipelines:
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not contain %q", err.Error(), want)
 		}
+	}
+}
+
+func TestLoadFileAllowsSQLiteWithSingleConcurrency(t *testing.T) {
+	body := `
+store:
+  type: sqlite
+  dsn: file:deltaflow.db
+
+workers:
+  concurrency: 1
+  lease_ttl: 30s
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`
+
+	if _, err := LoadFile(writeConfig(t, body), LoadOptions{}); err != nil {
+		t.Fatalf("LoadFile error: %v", err)
+	}
+}
+
+func TestLoadFileRejectsSQLiteConcurrencyGreaterThanOne(t *testing.T) {
+	body := `
+store:
+  type: sqlite
+  dsn: file:deltaflow.db
+
+workers:
+  concurrency: 2
+  lease_ttl: 30s
+
+pipelines:
+  - name: contacts-to-elasticsearch
+    sync_id: contacts-to-elasticsearch
+    source:
+      type: postgres-outbox
+      projection_type: contact
+    projector:
+      name: contact-projector
+    target:
+      type: elasticsearch
+      index: contacts
+    applier:
+      mode: upsert
+`
+
+	_, err := LoadFile(writeConfig(t, body), LoadOptions{})
+	if err == nil {
+		t.Fatal("LoadFile error = nil")
+	}
+	if !strings.Contains(err.Error(), "sqlite supports only workers.concurrency=1") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

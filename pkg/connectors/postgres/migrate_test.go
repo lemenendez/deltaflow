@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 var migrationTestDriverSeq atomic.Int64
@@ -25,7 +26,10 @@ func TestExecMigrationSQLRollsBackFailedMigrationOnSameConnection(t *testing.T) 
 	}
 	defer db.Close()
 
-	err = execMigrationSQL(context.Background(), db, "BEGIN;\nSELECT fail;\nCOMMIT;")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	err = execMigrationSQL(ctx, db, "BEGIN;\nSELECT fail;\nCOMMIT;")
 	if err == nil {
 		t.Fatal("execMigrationSQL error = nil")
 	}
@@ -37,8 +41,17 @@ func TestExecMigrationSQLRollsBackFailedMigrationOnSameConnection(t *testing.T) 
 	if !strings.Contains(events[0].query, "SELECT fail") {
 		t.Fatalf("first query = %q, want failing migration SQL", events[0].query)
 	}
+	if !events[0].deadlineSet {
+		t.Fatal("migration exec context had no deadline, want caller deadline present")
+	}
 	if events[1].query != "ROLLBACK" {
 		t.Fatalf("second query = %q, want ROLLBACK", events[1].query)
+	}
+	if !events[1].deadlineSet {
+		t.Fatal("rollback context has no deadline, want bounded cleanup timeout")
+	}
+	if !events[1].deadline.Before(events[0].deadline) {
+		t.Fatalf("rollback deadline = %v, want earlier than caller deadline %v", events[1].deadline, events[0].deadline)
 	}
 	if events[1].connID != events[0].connID {
 		t.Fatalf("rollback connID = %d, want same connection %d", events[1].connID, events[0].connID)
@@ -52,8 +65,10 @@ type migrationTestRecorder struct {
 }
 
 type migrationTestEvent struct {
-	connID int
-	query  string
+	connID      int
+	query       string
+	deadlineSet bool
+	deadline    time.Time
 }
 
 func (r *migrationTestRecorder) openConn() int {
@@ -64,11 +79,12 @@ func (r *migrationTestRecorder) openConn() int {
 	return r.nextID
 }
 
-func (r *migrationTestRecorder) record(connID int, query string) {
+func (r *migrationTestRecorder) record(connID int, query string, ctx context.Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.logs = append(r.logs, migrationTestEvent{connID: connID, query: query})
+	deadline, deadlineSet := ctx.Deadline()
+	r.logs = append(r.logs, migrationTestEvent{connID: connID, query: query, deadlineSet: deadlineSet, deadline: deadline})
 }
 
 func (r *migrationTestRecorder) events() []migrationTestEvent {
@@ -105,8 +121,8 @@ func (c *migrationTestConn) Begin() (driver.Tx, error) {
 	return nil, errors.New("begin is not supported")
 }
 
-func (c *migrationTestConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
-	c.recorder.record(c.id, query)
+func (c *migrationTestConn) ExecContext(ctx context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+	c.recorder.record(c.id, query, ctx)
 	if strings.Contains(query, "SELECT fail") {
 		return nil, errors.New("migration failed")
 	}

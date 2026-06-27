@@ -23,3 +23,14 @@ Operational note:
 If `workers.pull_size` is omitted, runtime derives dispatch pull size as
 `workers.concurrency * workers.batch_size`. Set `workers.pull_size` explicitly
 only when you need an override for operational tuning.
+
+## SQLite Notes
+
+SQLite support is intentionally single-worker in v0.10.0.
+
+- Use `store.type=sqlite` only with `workers.concurrency=1`.
+- Do not run multiple DeltaFlow worker processes against the same SQLite database.
+- Prefer WAL mode and a configured busy timeout for local deployments.
+- Use `EnqueueInTx` when source writes and DeltaFlow tables share the same SQLite transaction.
+
+See `docs/SQLITE.md` for full operational and enqueue-pattern guidance.
