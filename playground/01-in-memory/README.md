@@ -40,7 +40,7 @@ go run .
 
 The scenario is fixed on purpose so the output is easy to understand in demos.
 
-## Benchmark Mode (v0.9.0 throughput)
+## Benchmark Mode (v0.10.0 throughput)
 
 This playground now includes a deterministic throughput benchmark that exercises
 the real worker claim path with configurable worker concurrency and batch size.

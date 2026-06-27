@@ -32,7 +32,7 @@ Useful commands:
 - `make reset` to drop/recreate the schema
 - `make down` to stop and remove containers/volumes
 
-## Benchmark Mode (v0.9.0 throughput)
+## Benchmark Mode (v0.10.0 throughput)
 
 Run deterministic throughput benchmark (real Postgres stores + worker path):
 
