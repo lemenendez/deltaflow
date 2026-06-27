@@ -30,8 +30,7 @@ Pick the path that matches what you want to learn next.
 
 ### I want to understand the project quickly
 
-- Read the short design overview in [docs/DESIGN.md](docs/DESIGN.md).
-- See the broader design notes in [docs/DESIGNFULL.md](docs/DESIGNFULL.md).
+- Read the design overview in [docs/DESIGN.md](docs/DESIGN.md).
 - Check the current scope and future milestones in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### I want to know what is available right now

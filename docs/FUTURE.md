@@ -4,8 +4,8 @@ These are future ideas:
 
 Near-term milestone tracking:
 
-- v0.9.0 planned: worker throughput + batching
-- docs: PLAN_v0.9.0.md and RELEASE_NOTES_V0.9.0.md (draft)
+- v0.10.0 shipped: SQLite single-node durable stores
+- docs: PLAN_v0.10.0.md and RELEASE_NOTES_V0.10.0.md
 
 ```text
 Multiple targets

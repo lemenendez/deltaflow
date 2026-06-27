@@ -41,4 +41,4 @@ construct application-specific projectors from YAML alone.
 
 - Long-running worker process mode for `deltaflow run` (current behavior is one cycle per pipeline).
 - End-to-end integration test for CLI `run` with containerized Postgres + Elasticsearch.
-- Worker batching and throughput improvements remain v0.9.0.
+- Worker batching and throughput improvements remain v0.10.0.

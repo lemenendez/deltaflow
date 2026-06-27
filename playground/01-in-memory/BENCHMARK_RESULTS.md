@@ -1,6 +1,6 @@
 # 01 In-Memory Benchmark Results
 
-Use this file to record repeatable throughput runs for v0.9.0 tuning.
+Use this file to record repeatable throughput runs for v0.10.0 tuning.
 
 ## Run Command
 
