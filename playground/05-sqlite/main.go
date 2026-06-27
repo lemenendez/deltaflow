@@ -51,6 +51,20 @@ func main() {
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS contacts (id TEXT PRIMARY KEY, full_name TEXT NOT NULL)`); err != nil {
 		log.Fatalf("create contacts source table: %v", err)
 	}
+
+	releaseLock, err := sqlitestore.AcquireWorkerLock(ctx, db, "playground-05-sqlite", 30*time.Second)
+	if err != nil {
+		if errors.Is(err, sqlitestore.ErrWorkerAlreadyRunning) {
+			log.Fatalf("sqlite worker already running for this database")
+		}
+		log.Fatalf("acquire sqlite worker lock: %v", err)
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = releaseLock(releaseCtx)
+	}()
+
 	if _, err := db.ExecContext(ctx, `DELETE FROM contacts`); err != nil {
 		log.Fatalf("reset contacts: %v", err)
 	}
