@@ -67,7 +67,7 @@ func execMigrationSQL(ctx context.Context, db *sql.DB, sqlText string) error {
 		// Migration files manage their own BEGIN/COMMIT. If a statement fails
 		// after BEGIN, clean up the transaction state on this same session
 		// before returning the connection to database/sql's pool.
-		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		return err
 	}
 

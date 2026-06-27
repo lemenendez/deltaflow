@@ -87,6 +87,13 @@ pipelines:
       mode: upsert
 ```
 
+Note:
+
+- `source.type` is currently a required fixed value for the dispatch/outbox source shape.
+- `source.type: postgres-outbox` does not mean Postgres is the durable store for this config.
+- In this example, the durable store is still SQLite because `store.type=sqlite`.
+- DeltaFlow still does not automatically capture source-table writes; applications enqueue deltas explicitly.
+
 ## Manual Enqueue Patterns
 
 DeltaFlow does not scrape source-table writes automatically. Applications enqueue deltas explicitly.

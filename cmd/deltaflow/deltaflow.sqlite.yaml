@@ -12,6 +12,7 @@ pipelines:
   - name: contacts-to-elasticsearch
     sync_id: contacts-to-elasticsearch
     source:
+      # Required fixed dispatch/outbox source type; does not imply Postgres is the durable store.
       type: postgres-outbox
       projection_type: contact
     projector:

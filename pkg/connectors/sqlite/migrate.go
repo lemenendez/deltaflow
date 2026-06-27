@@ -59,7 +59,7 @@ func execMigrationSQL(ctx context.Context, db *sql.DB, sqlText string) error {
 	if _, err := conn.ExecContext(ctx, sqlText); err != nil {
 		// Migration files manage BEGIN/COMMIT; roll back on this same session
 		// so the pooled connection cannot be returned with an open transaction.
-		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		return err
 	}
 
