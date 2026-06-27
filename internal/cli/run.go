@@ -236,7 +236,7 @@ func startSQLiteWorkerLockHeartbeat(parent context.Context, db *sql.DB, workerID
 			case <-heartbeatCtx.Done():
 				return
 			case <-ticker.C:
-				renewCtx, cancelRenew := context.WithTimeout(context.WithoutCancel(heartbeatCtx), renewTimeout)
+				renewCtx, cancelRenew := context.WithTimeout(heartbeatCtx, renewTimeout)
 				err := sqlitestore.RenewWorkerLock(renewCtx, db, workerID, leaseTTL)
 				cancelRenew()
 				if err != nil {
@@ -311,13 +311,6 @@ func (w *sqliteHeartbeatWatcher) err() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.errV
-}
-
-func minDuration(a time.Duration, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func sqliteDetachedCleanupTimeoutContext(_ context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
