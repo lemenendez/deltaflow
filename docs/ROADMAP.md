@@ -145,7 +145,7 @@
 - [ ] Add migration/upgrade notes from pre-v1 versions
 - [ ] Mark unstable or experimental APIs clearly
 - [ ] Prepare v1.0 release checklist
-- [ ] Release notes draft: [RELEASE_NOTES_V0.13.0.md](RELEASE_NOTES_V0.13.0.md)
+- [ ] Release notes draft: [RELEASE_NOTES_V0.14.0.md](RELEASE_NOTES_V0.14.0.md)
 
 ## v1.0.0 - Stable latest_state OSS release
 - [ ] Stable latest_state synchronization model
