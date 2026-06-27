@@ -65,6 +65,6 @@ is unset, so local `go run .` remains lightweight.
 ## Deferred
 
 - `deltaflow run` and YAML/runtime wiring model remain v0.8.0.
-- Worker batching and throughput controls remain v0.10.0.
+- Worker batching and throughput controls remain v0.9.0.
 - Redis/Postgres target appliers remain v0.10.0.
 - Applier-level metrics/logging, Prometheus examples, Grafana dashboards, and trace/debug commands remain v0.11.0.
