@@ -104,8 +104,11 @@ func TestExecMigrationSQLRollbackIgnoresCallerDeadline(t *testing.T) {
 	if events[1].query != "ROLLBACK" {
 		t.Fatalf("second query = %q, want ROLLBACK", events[1].query)
 	}
-	if events[1].deadlineSet {
-		t.Fatal("rollback context inherited caller deadline, want no deadline")
+	if !events[1].deadlineSet {
+		t.Fatal("rollback context has no deadline, want bounded cleanup timeout")
+	}
+	if !events[1].deadline.Before(events[0].deadline) {
+		t.Fatalf("rollback deadline = %v, want earlier than caller deadline %v", events[1].deadline, events[0].deadline)
 	}
 	if events[1].connID != events[0].connID {
 		t.Fatalf("rollback connID = %d, want same connection %d", events[1].connID, events[0].connID)
@@ -122,6 +125,7 @@ type sqliteMigrationTestEvent struct {
 	connID      int
 	query       string
 	deadlineSet bool
+	deadline    time.Time
 }
 
 func (r *sqliteMigrationTestRecorder) openConn() int {
@@ -136,8 +140,8 @@ func (r *sqliteMigrationTestRecorder) record(connID int, query string, ctx conte
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, deadlineSet := ctx.Deadline()
-	r.logs = append(r.logs, sqliteMigrationTestEvent{connID: connID, query: query, deadlineSet: deadlineSet})
+	deadline, deadlineSet := ctx.Deadline()
+	r.logs = append(r.logs, sqliteMigrationTestEvent{connID: connID, query: query, deadlineSet: deadlineSet, deadline: deadline})
 }
 
 func (r *sqliteMigrationTestRecorder) events() []sqliteMigrationTestEvent {

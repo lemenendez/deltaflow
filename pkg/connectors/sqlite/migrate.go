@@ -8,10 +8,13 @@ import (
 	"io/fs"
 	"sort"
 	"strings"
+	"time"
 )
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+const migrationRollbackTimeout = 2 * time.Second
 
 type AppliedMigration struct {
 	Name string
@@ -59,7 +62,11 @@ func execMigrationSQL(ctx context.Context, db *sql.DB, sqlText string) error {
 	if _, err := conn.ExecContext(ctx, sqlText); err != nil {
 		// Migration files manage BEGIN/COMMIT; roll back on this same session
 		// so the pooled connection cannot be returned with an open transaction.
-		_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		// Use a detached bounded context so cleanup ignores caller cancellation
+		// but cannot block forever.
+		rollbackCtx, cancelRollback := context.WithTimeout(context.Background(), migrationRollbackTimeout)
+		defer cancelRollback()
+		_, _ = conn.ExecContext(rollbackCtx, "ROLLBACK")
 		return err
 	}
 
