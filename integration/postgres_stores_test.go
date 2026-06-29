@@ -7,7 +7,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -396,6 +398,152 @@ func TestPostgresContainer_ClaimRetryAndReclaimLease(t *testing.T) {
 	if reclaimed.LockedBy == nil || *reclaimed.LockedBy != "worker-3" {
 		t.Fatalf("locked_by = %v, want worker-3", reclaimed.LockedBy)
 	}
+}
+
+func TestPostgresContainer_ClaimNextBatchRegression(t *testing.T) {
+	t.Run("reclaims expired processing jobs", func(t *testing.T) {
+		ctx, db, _, _, _ := withPostgresStores(t)
+		jobStore := pgstore.NewJobStore(db, pgstore.JobStoreConfig{MaxAttempts: 3})
+
+		expired, err := jobStore.Create(ctx, deltaflow.SyncJob{
+			SyncID:         syncA,
+			Origin:         deltaflow.JobOriginManual,
+			ProjectionType: "Contact",
+			ProjectionKey:  contactKey("batch-expired"),
+		})
+		if err != nil {
+			t.Fatalf("create expired: %v", err)
+		}
+
+		active, err := jobStore.Create(ctx, deltaflow.SyncJob{
+			SyncID:         syncA,
+			Origin:         deltaflow.JobOriginManual,
+			ProjectionType: "Contact",
+			ProjectionKey:  contactKey("batch-active"),
+		})
+		if err != nil {
+			t.Fatalf("create active: %v", err)
+		}
+
+		readyPending, err := jobStore.Create(ctx, deltaflow.SyncJob{
+			SyncID:         syncA,
+			Origin:         deltaflow.JobOriginManual,
+			ProjectionType: "Contact",
+			ProjectionKey:  contactKey("batch-ready"),
+		})
+		if err != nil {
+			t.Fatalf("create ready pending: %v", err)
+		}
+
+		now := time.Now().UTC()
+		expiredUntil := now.Add(-10 * time.Second)
+		activeUntil := now.Add(2 * time.Minute)
+		mustSetLeaseState(t, ctx, db, expired.ID, deltaflow.StateProcessing, "worker-old", &expiredUntil, now.Add(-time.Second))
+		mustSetLeaseState(t, ctx, db, active.ID, deltaflow.StateProcessing, "worker-live", &activeUntil, now.Add(-time.Second))
+
+		claimed, err := jobStore.ClaimNextBatch(ctx, syncA, "worker-batch", 10, time.Minute)
+		if err != nil {
+			t.Fatalf("claim batch: %v", err)
+		}
+		if len(claimed) != 2 {
+			t.Fatalf("len(claimed) = %d, want 2", len(claimed))
+		}
+
+		claimedIDs := map[deltaflow.SyncJobID]struct{}{}
+		for _, job := range claimed {
+			claimedIDs[job.ID] = struct{}{}
+			if job.LockedBy == nil || *job.LockedBy != "worker-batch" {
+				t.Fatalf("claimed job %s locked_by = %v, want worker-batch", job.ID, job.LockedBy)
+			}
+		}
+		if _, ok := claimedIDs[expired.ID]; !ok {
+			t.Fatalf("expired processing job %s was not reclaimed", expired.ID)
+		}
+		if _, ok := claimedIDs[readyPending.ID]; !ok {
+			t.Fatalf("pending job %s was not claimed", readyPending.ID)
+		}
+		if _, ok := claimedIDs[active.ID]; ok {
+			t.Fatalf("active leased job %s was incorrectly claimed", active.ID)
+		}
+
+		activeAfter, ok, err := jobStore.Get(ctx, active.ID)
+		if err != nil || !ok {
+			t.Fatalf("get active after claim: ok=%v err=%v", ok, err)
+		}
+		if activeAfter.LockedBy == nil || *activeAfter.LockedBy != "worker-live" {
+			t.Fatalf("active job lock owner changed to %v, want worker-live", activeAfter.LockedBy)
+		}
+	})
+
+	t.Run("does not double claim under concurrent claimers", func(t *testing.T) {
+		ctx, db, _, _, _ := withPostgresStores(t)
+		jobStore := pgstore.NewJobStore(db, pgstore.JobStoreConfig{MaxAttempts: 3})
+
+		const (
+			claimerCount = 4
+			batchSize    = 3
+		)
+
+		for i := 0; i < claimerCount*batchSize; i++ {
+			_, err := jobStore.Create(ctx, deltaflow.SyncJob{
+				SyncID:         syncA,
+				Origin:         deltaflow.JobOriginManual,
+				ProjectionType: "Contact",
+				ProjectionKey:  contactKey(fmt.Sprintf("concurrent-%02d", i)),
+			})
+			if err != nil {
+				t.Fatalf("create concurrent job %d: %v", i, err)
+			}
+		}
+
+		start := make(chan struct{})
+		var (
+			wg        sync.WaitGroup
+			mu        sync.Mutex
+			claimErr  error
+			claimedBy = make(map[deltaflow.SyncJobID]string)
+		)
+
+		for i := 0; i < claimerCount; i++ {
+			workerID := fmt.Sprintf("worker-concurrent-%d", i+1)
+			wg.Add(1)
+			go func(workerID string) {
+				defer wg.Done()
+				<-start
+
+				jobs, err := jobStore.ClaimNextBatch(ctx, syncA, workerID, batchSize, 2*time.Minute)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					if claimErr == nil {
+						claimErr = err
+					}
+					return
+				}
+				for _, job := range jobs {
+					if prev, exists := claimedBy[job.ID]; exists {
+						if claimErr == nil {
+							claimErr = errors.New("job " + string(job.ID) + " claimed by both " + prev + " and " + workerID)
+						}
+						continue
+					}
+					claimedBy[job.ID] = workerID
+				}
+			}(workerID)
+		}
+
+		close(start)
+		wg.Wait()
+
+		if claimErr != nil {
+			t.Fatalf("concurrent claim failure: %v", claimErr)
+		}
+
+		want := claimerCount * batchSize
+		if len(claimedBy) != want {
+			t.Fatalf("unique claimed jobs = %d, want %d", len(claimedBy), want)
+		}
+	})
 }
 
 func TestPostgresContainer_RenewLeaseAndOwnershipChecks(t *testing.T) {
