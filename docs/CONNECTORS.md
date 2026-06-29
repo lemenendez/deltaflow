@@ -34,3 +34,59 @@ SQLite support is intentionally single-worker in v0.10.0.
 - Use `EnqueueInTx` when source writes and DeltaFlow tables share the same SQLite transaction.
 
 See `docs/SQLITE.md` for full operational and enqueue-pattern guidance.
+
+## Redis Projection Applier
+
+`pkg/connectors/redis` applies latest-state projections to Redis-compatible string keys. Redis is a derived cache target; it is not a DeltaStore or JobStore.
+
+The application constructs and owns the go-redis client and must provide a deterministic `KeyFunc`:
+
+```go
+client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+
+applier, err := redisconnector.NewApplier(redisconnector.ApplierConfig{
+    Client: client,
+    KeyFunc: func(identity deltaflow.ProjectionIdentity) (string, error) {
+        id, err := contactID(identity.Key)
+        if err != nil {
+            return "", err
+        }
+        return "contacts:" + id, nil
+    },
+    TTL: 15 * time.Minute,
+})
+```
+
+Client ownership:
+
+- The applier accepts the narrow `CommandClient` interface implemented by standard go-redis standalone, Sentinel, Cluster, and Ring clients.
+- The applier does not create, ping, or close the client.
+- Connection pools, authentication, TLS, timeouts, topology, and go-redis transport retries remain application configuration.
+
+Key and payload contract:
+
+- `KeyFunc` is mandatory; there is no connector-owned key format.
+- The same Projection Identity must always resolve to the same non-empty key.
+- Applications own namespacing and collision avoidance.
+- `Projection.Payload` is stored unchanged as a binary-safe Redis string value.
+- JSON is supported as ordinary bytes but is neither required nor validated.
+- RedisJSON and other module-specific commands are not used.
+
+Operation contract:
+
+- Upsert executes `SET`, replacing the complete value.
+- Delete executes `DEL`; an already-missing key is success.
+- Additive commands such as `INCR`, append, list mutation, and stream publication are intentionally unavailable because the current `ProjectionApplier` contract requires state-idempotent behavior.
+- The connector adds no retry loop. Worker backoff and `MaxAttempts` remain the only DeltaFlow retry policy.
+
+TTL uses replace-and-refresh semantics:
+
+- `TTL == 0` writes a persistent key and clears an existing expiration.
+- `TTL > 0` sets a new expiration relative to every successful upsert.
+- Negative TTL is rejected during construction.
+- Retries may refresh expiration again.
+- Reads do not extend TTL.
+
+Redis is the primary documented target. Valkey runs the same connector integration contract. Other Redis-compatible servers remain best-effort.
+
+See `playground/06-postgres-redis` for transactional Postgres enqueue through asynchronous Redis cache synchronization and a Valkey-compatible execution path.
