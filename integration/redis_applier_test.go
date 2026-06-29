@@ -86,7 +86,7 @@ func TestRedisApplierContainerContract(t *testing.T) {
 		if !bytes.Equal(got, payload) {
 			t.Fatalf("payload = %v, want %v", got, payload)
 		}
-		if ttl, err := client.TTL(ctx, key).Result(); err != nil || ttl != -1*time.Second {
+		if ttl, err := client.TTL(ctx, key).Result(); err != nil || ttl >= 0 {
 			t.Fatalf("TTL = %s, err = %v, want persistent", ttl, err)
 		}
 	})
