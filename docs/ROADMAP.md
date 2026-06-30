@@ -98,18 +98,18 @@
 - [x] Release notes draft: [RELEASE_NOTES_V0.10.0.md](RELEASE_NOTES_V0.10.0.md)
 
 ## v0.11.0 - Redis applier
-- [ ] Concrete Redis ProjectionApplier package
-- [ ] Upsert/delete support for cache-style projections
-- [ ] Explicit Redis client/config from Go code
-- [ ] Key naming strategy: sync_id + projection_type + projection_key_hash
-- [ ] JSON payload storage for latest projected state
-- [ ] Optional TTL explicitly deferred unless needed by a playground
-- [ ] Retryable vs permanent error classification where practical
-- [ ] Focused tests around operation mapping and error handling
-- [ ] Redis playground: source write -> transactional Delta enqueue -> async Redis cache sync
-- [ ] Document Redis as a cache projection target
-- [ ] Plan doc: [PLAN_v0.11.0.md](PLAN_v0.11.0.md)
-- [ ] Release notes draft: [RELEASE_NOTES_V0.11.0.md](RELEASE_NOTES_V0.11.0.md)
+- [x] Concrete Redis ProjectionApplier package
+- [x] Upsert/delete support for cache-style projections
+- [x] Explicit Redis client/config from Go code
+- [x] Mandatory application-provided KeyFunc; no connector-owned default key format
+- [x] Binary-safe storage of opaque Projection.Payload bytes
+- [x] Configurable TTL: zero persists, positive expires, negative is invalid
+- [x] Preserve the existing worker retry/max-attempts policy without connector-level retries
+- [x] Focused tests around operation mapping and error handling
+- [x] Redis playground: source write -> transactional Delta enqueue -> async Redis cache sync
+- [x] Document Redis as a cache projection target with Redis/Valkey compatibility contract tests
+- [x] Plan doc: [PLAN_v0.11.0.md](PLAN_v0.11.0.md)
+- [x] Release notes draft: [RELEASE_NOTES_V0.11.0.md](RELEASE_NOTES_V0.11.0.md)
 
 ## v0.12.0 - Backfills
 - [ ] Define backfill API and CLI shape

@@ -339,6 +339,26 @@ Apply delete twice = safe
 Apply delete when missing = safe
 ```
 
+Idempotent here means repeated application converges on the same logical target
+state. It does not mean exactly-once execution: a target may observe duplicate
+writes, and secondary effects such as notifications may occur more than once.
+
+Latest-state appliers must therefore use replacement semantics keyed by
+Projection Identity, such as `SET`, document indexing by stable ID, or a
+database `UPSERT`. Additive operations such as increment, append, stream
+publication, or an unconstrained database `INSERT` are non-idempotent and are
+outside the current `ProjectionApplier` contract.
+
+Redis illustrates the distinction between state idempotency and identical side
+effects. Repeating `SET key payload` leaves the key holding the latest projected
+payload, so the logical data state converges. When the upsert includes a TTL,
+each repeated `SET` may refresh the expiration deadline and increase the key's
+remaining lifetime. DeltaFlow still treats this as state-idempotent cache
+behavior: the projected data is latest-state, while TTL is retention metadata
+relative to the most recent successful application. Consumers that require an
+unchanged absolute expiry or exactly-once notifications need a different,
+explicit contract.
+
 Examples of latest-state-friendly derived systems:
 
 ```text

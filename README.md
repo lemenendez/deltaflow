@@ -44,6 +44,7 @@ Pick the path that matches what you want to learn next.
 - Start with the smallest example: [playground/01-in-memory/README.md](playground/01-in-memory/README.md).
 - Try a durable Postgres flow: [playground/02-postgres/README.md](playground/02-postgres/README.md).
 - Try the SQLite single-node flow: [playground/05-sqlite/README.md](playground/05-sqlite/README.md).
+- Try a Postgres-to-Redis cache flow: [playground/06-postgres-redis/README.md](playground/06-postgres-redis/README.md).
 
 ### I want to wire DeltaFlow into an application
 
@@ -66,6 +67,7 @@ The current public path is the latest-state worker model with:
 - dispatch and outbox-safe job creation
 - lease ownership checks, retries, dead-letter behavior, and ghost delete handling
 - a concrete Elasticsearch applier in [pkg/connectors/elasticsearch](pkg/connectors/elasticsearch)
+- a concrete Redis applier with tested Valkey compatibility in [pkg/connectors/redis](pkg/connectors/redis)
 
 The latest documented milestone is v0.10.0, which adds SQLite durable-store support for local and embedded use cases. See [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md).
 
@@ -124,6 +126,7 @@ Standalone examples live under [playground](playground).
 - [playground/03-postgres-e-commerce](playground/03-postgres-e-commerce): concurrent product-search workload with Elasticsearch, retries, and dead-letter simulation
 - [playground/04-postgres-crm](playground/04-postgres-crm): concurrent CRM read-model workload with simulated views and Elasticsearch fanout
 - [playground/05-sqlite](playground/05-sqlite): SQLite durable-store example for the supported single-node / single-worker model
+- [playground/06-postgres-redis](playground/06-postgres-redis): transactional Postgres source/outbox synchronized into Redis with TTL, retry, ghost deletion, and Valkey compatibility
 
 If you are new to the project, start with 01, then 02 or 05 depending on whether you want the Postgres or SQLite path.
 

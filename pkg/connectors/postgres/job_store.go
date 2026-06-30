@@ -736,14 +736,8 @@ func (s *JobStore) ClaimNextBatch(ctx context.Context, syncID deltaflow.SyncID, 
 	lockedUntil := now.Add(lockFor)
 
 	rows, err := s.DB.QueryContext(ctx, `
-WITH candidate AS (
-	SELECT
-		id,
-		row_number() OVER (ORDER BY available_at ASC, created_at ASC, id ASC) AS ord,
-		(
-			state = 'processing'
-			AND (locked_until IS NULL OR locked_until <= $1)
-		) AS reclaimed
+WITH locked AS (
+	SELECT id
 	FROM deltaflow.deltaflow_sync_jobs
 	WHERE
 		sync_id = $2
@@ -760,6 +754,16 @@ WITH candidate AS (
 	ORDER BY available_at ASC, created_at ASC, id ASC
 	LIMIT $5
 	FOR UPDATE SKIP LOCKED
+), candidate AS (
+	SELECT
+		j.id,
+		row_number() OVER (ORDER BY j.available_at ASC, j.created_at ASC, j.id ASC) AS ord,
+		(
+			j.state = 'processing'
+			AND (j.locked_until IS NULL OR j.locked_until <= $1)
+		) AS reclaimed
+	FROM deltaflow.deltaflow_sync_jobs j
+	JOIN locked ON j.id = locked.id
 ), updated AS (
 	UPDATE deltaflow.deltaflow_sync_jobs j
 	SET
