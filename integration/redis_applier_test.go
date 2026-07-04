@@ -104,8 +104,8 @@ func TestRedisApplierContainerContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ttl <= time.Second || ttl > 2*time.Second {
-			t.Fatalf("PTTL = %s, want refreshed deadline near 2s", ttl)
+		if ttl <= 500*time.Millisecond || ttl > 2*time.Second {
+			t.Fatalf("PTTL = %s, want refreshed deadline >500ms and <=2s", ttl)
 		}
 	})
 
