@@ -4,13 +4,23 @@ DeltaFlow is a Go library and CLI for keeping a derived system synchronized with
 
 Use it when your app owns the source of truth, but you need to keep another system up to date asynchronously and safely: search indexes, cache documents, read models, or denormalized views.
 
-Core flow:
+DeltaFlow is an embeddable projection synchronization engine focused on latest-state delivery today, with roadmap support for additional projection timing modes.
+
+It helps applications record durable projection changes, dispatch sync jobs, apply projections to external targets, retry failures, inspect outcomes, and rebuild destinations through backfills.
+
+Latest-state delivery means that, for a given Projection Identity, DeltaFlow is designed to converge the destination toward the newest desired projection state. With projection timing modes, this behavior can vary by mode: for example, Early Projection may intentionally apply multiple versions for the same Projection Identity in order.
+
+Projection computation is application-owned. A projection may be captured early by the application, computed later by a Go Projector, or computed later through a configured SQL function/procedure.
+
+DeltaFlow is not CDC, not event sourcing, not workflow automation, and not a universal integration platform. It focuses on application-owned projection semantics: the application decides what a business object means, when a projection is produced, and how that projection should appear in external targets.
+
+Core flow (current latest-state path):
 
 ```text
 Application write -> Delta enqueue -> Dispatch -> SyncJob -> SyncWorker -> Projector.Project -> ProjectionApplier.Apply
 ```
 
-If `Projector.Project` returns `ErrProjectionNotFound`, DeltaFlow treats the projection as a ghost and applies a delete operation.
+In the current latest-state path, if `Projector.Project` returns `ErrProjectionNotFound`, DeltaFlow treats the projection as a ghost and applies a delete operation.
 
 ## What DeltaFlow Is
 
@@ -35,7 +45,7 @@ Pick the path that matches what you want to learn next.
 
 ### I want to know what is available right now
 
-- Latest release notes: [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md).
+- Latest release notes: [docs/RELEASE_NOTES_V0.11.0.md](docs/RELEASE_NOTES_V0.11.0.md).
 - Current SQLite guidance: [docs/SQLITE.md](docs/SQLITE.md).
 - Connector notes: [docs/CONNECTORS.md](docs/CONNECTORS.md).
 
@@ -69,12 +79,12 @@ The current public path is the latest-state worker model with:
 - a concrete Elasticsearch applier in [pkg/connectors/elasticsearch](pkg/connectors/elasticsearch)
 - a concrete Redis applier with tested Valkey compatibility in [pkg/connectors/redis](pkg/connectors/redis)
 
-The latest documented milestone is v0.10.0, which adds SQLite durable-store support for local and embedded use cases. See [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md).
+The latest documented milestone is v0.11.0, which adds the Redis applier for cache-style projection targets. See [docs/RELEASE_NOTES_V0.11.0.md](docs/RELEASE_NOTES_V0.11.0.md).
 
 ## Release History
 
-- Latest release notes: [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md)
-- Previous milestones: [docs/RELEASE_NOTES_V0.9.0.md](docs/RELEASE_NOTES_V0.9.0.md), [docs/RELEASE_NOTES_V0.8.0.md](docs/RELEASE_NOTES_V0.8.0.md), [docs/RELEASE_NOTES_V0.7.0.md](docs/RELEASE_NOTES_V0.7.0.md), [docs/RELEASE_NOTES_V0.5.0.md](docs/RELEASE_NOTES_V0.5.0.md), [docs/RELEASE_NOTES_V0.4.0.md](docs/RELEASE_NOTES_V0.4.0.md), [docs/RELEASE_NOTES_v0.3.0.md](docs/RELEASE_NOTES_v0.3.0.md)
+- Latest release notes: [docs/RELEASE_NOTES_V0.11.0.md](docs/RELEASE_NOTES_V0.11.0.md)
+- Previous milestones: [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md), [docs/RELEASE_NOTES_V0.9.0.md](docs/RELEASE_NOTES_V0.9.0.md), [docs/RELEASE_NOTES_V0.8.0.md](docs/RELEASE_NOTES_V0.8.0.md), [docs/RELEASE_NOTES_V0.7.0.md](docs/RELEASE_NOTES_V0.7.0.md), [docs/RELEASE_NOTES_V0.5.0.md](docs/RELEASE_NOTES_V0.5.0.md), [docs/RELEASE_NOTES_V0.4.0.md](docs/RELEASE_NOTES_V0.4.0.md), [docs/RELEASE_NOTES_v0.3.0.md](docs/RELEASE_NOTES_v0.3.0.md)
 
 ## Choose a Deployment Shape
 
@@ -165,7 +175,7 @@ For SQLite, `store.type=sqlite` supports only `workers.concurrency=1`.
 - SQLite guidance: [docs/SQLITE.md](docs/SQLITE.md)
 - Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Future ideas: [docs/FUTURE.md](docs/FUTURE.md)
-- Latest release notes: [docs/RELEASE_NOTES_V0.10.0.md](docs/RELEASE_NOTES_V0.10.0.md)
+- Latest release notes: [docs/RELEASE_NOTES_V0.11.0.md](docs/RELEASE_NOTES_V0.11.0.md)
 
 ## Development Hooks
 
