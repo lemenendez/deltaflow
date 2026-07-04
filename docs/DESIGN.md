@@ -1,11 +1,11 @@
 # DeltaFlow Design
 
-> Status: v0.10.0 latest-state design with CLI runtime wiring.
+> Status: v0.11.0 current design with latest-state runtime defaults and roadmap extension points.
 >
 > Goal: keep DeltaFlow small, explicit, and clear.
 >
-> DeltaFlow v0.10.0 exposes the latest-state worker contract through public Go APIs,
-> with in-memory and durable Postgres Delta and SyncJob stores plus explicit
+> DeltaFlow v0.11.0 exposes the latest-state worker contract through public Go APIs,
+> with in-memory and durable Postgres/SQLite Delta and SyncJob stores plus explicit
 > startup runtime registration for projector/applier wiring.
 > A Sync is not a graph, not a connector registry, not a multi-target fan-out
 > system, and not an Apache Beam pipeline.
@@ -57,11 +57,23 @@ For SQLite usage, DeltaFlow is intentionally a single-node and single-worker run
 - no multiple competing worker processes
 - when a second worker starts, fail fast with a clear startup error
 
+### 1.3 Current scope and roadmap direction
+
+Current scope remains the latest-state worker model with explicit runtime wiring.
+
+Roadmap direction expands this model through staged milestones, including:
+
+- projection timing modes (Early Projection, Late Go Projection, Late SQL Projection)
+- backfills and restart-safe source enumeration strategies
+- connector module split and connector-management readiness
+- producer SDK adoption work across Go, C#, and TypeScript/JavaScript
+- explainability paths (WATTA) and progression toward Sync-Tree
+
 ---
 
-## 2. Non-goals for current scope (v0.10.0)
+## 2. Non-goals for current scope (v0.11.0)
 
-DeltaFlow v0.10.0 does not include:
+DeltaFlow v0.11.0 does not include:
 
 ```text
 CDC as the primary abstraction
@@ -111,7 +123,7 @@ A Projection is the thing DeltaFlow wants to keep synchronized in a derived syst
 
 A Projection Type is a string that classifies a Projection.
 
-It acts as a classifier or typer.
+It acts as a classifier or type label.
 
 Examples:
 
@@ -1121,13 +1133,13 @@ full customer data
 
 ## 13. Design Rules
 
-1. current version supports only `latest_state`.
+1. current default runtime path is `latest_state`; additional timing modes are roadmap-scoped.
 2. current version supports one Projector and one ProjectionApplier per SyncWorker configuration.
 3. Do not implement a connector registry.
 4. Do not implement fan-out.
 5. Do not implement envelopes or codecs.
 6. Do not use CDC as the primary abstraction.
-7. Do not call Deltas events.
+7. Do not treat Deltas as events.
 8. Use `projection_type` and `projection_key`, not `entity_type` and `entity_id`.
 9. Treat `ErrProjectionNotFound` from the Projector as a Delta Ghost.
 10. Keep ProjectionAppliers idempotent in current version.
