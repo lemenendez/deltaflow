@@ -9,6 +9,7 @@ import (
 
 type txDeltaEnqueuer interface {
 	EnqueueInTx(ctx context.Context, tx *sql.Tx, delta deltaflow.Delta) (*deltaflow.Delta, error)
+	EnqueueBatchTx(ctx context.Context, tx *sql.Tx, deltas []deltaflow.Delta) (*deltaflow.EnqueueBatchResult, error)
 }
 
 var (

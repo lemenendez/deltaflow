@@ -42,6 +42,73 @@ func TestDeltaMemoryStoreEnqueuePendingDelta(t *testing.T) {
 	}
 }
 
+func TestDeltaMemoryStoreEnqueueBatchIsWindowIdempotent(t *testing.T) {
+	store := NewDeltaMemoryStore()
+	deltas := []deltaflow.Delta{
+		{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"1"`)}, DedupWindow: "customers-2026"},
+		{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"2"`)}, DedupWindow: "customers-2026"},
+		{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"1"`)}, DedupWindow: "customers-2026"},
+	}
+
+	first, err := store.EnqueueBatch(context.Background(), deltas)
+	if err != nil {
+		t.Fatalf("first EnqueueBatch: %v", err)
+	}
+	if first.RequestedCount != 3 || first.InsertedCount != 2 || first.DuplicateCount != 1 {
+		t.Fatalf("first result = %#v", first)
+	}
+	second, err := store.EnqueueBatch(context.Background(), deltas)
+	if err != nil {
+		t.Fatalf("second EnqueueBatch: %v", err)
+	}
+	if second.InsertedCount != 0 || second.DuplicateCount != 3 {
+		t.Fatalf("second result = %#v", second)
+	}
+
+	other := deltas[:1]
+	other[0].DedupWindow = "customers-2027"
+	third, err := store.EnqueueBatch(context.Background(), other)
+	if err != nil {
+		t.Fatalf("other-window EnqueueBatch: %v", err)
+	}
+	if third.InsertedCount != 1 {
+		t.Fatalf("other-window result = %#v", third)
+	}
+}
+
+func TestDeltaMemoryStoreEnqueueReturnsExistingWindowDuplicate(t *testing.T) {
+	store := NewDeltaMemoryStore()
+	delta := deltaflow.Delta{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"1"`)}, DedupWindow: "window"}
+	first, err := store.Enqueue(context.Background(), delta)
+	if err != nil {
+		t.Fatalf("first Enqueue: %v", err)
+	}
+	second, err := store.Enqueue(context.Background(), delta)
+	if err != nil {
+		t.Fatalf("second Enqueue: %v", err)
+	}
+	if second.ID != first.ID || second.DedupKey == "" {
+		t.Fatalf("duplicate = %#v, first = %#v", second, first)
+	}
+}
+
+func TestDeltaMemoryStoreEnqueueBatchGuardrails(t *testing.T) {
+	store := NewDeltaMemoryStore()
+	_, err := store.EnqueueBatch(context.Background(), []deltaflow.Delta{{}})
+	if !errors.Is(err, deltaflow.ErrDedupWindowRequired) {
+		t.Fatalf("missing window error = %v", err)
+	}
+	_, err = store.EnqueueBatch(context.Background(), []deltaflow.Delta{{DedupWindow: "a"}, {DedupWindow: "b"}})
+	if !errors.Is(err, deltaflow.ErrMixedDedupWindows) {
+		t.Fatalf("mixed window error = %v", err)
+	}
+	limited := NewDeltaMemoryStoreWithConfig(DeltaMemoryStoreConfig{MaxEnqueueBatchSize: 1})
+	_, err = limited.EnqueueBatch(context.Background(), []deltaflow.Delta{{DedupWindow: "a"}, {DedupWindow: "a"}})
+	if !errors.Is(err, deltaflow.ErrEnqueueBatchTooLarge) {
+		t.Fatalf("oversized batch error = %v", err)
+	}
+}
+
 func TestDeltaMemoryStoreEnqueueComputesProjectionKeyHash(t *testing.T) {
 	ctx := context.Background()
 	store := NewDeltaMemoryStore()

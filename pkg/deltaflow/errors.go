@@ -15,6 +15,12 @@ var (
 	ErrJobLeaseNotOwned = errors.New("job lease not owned")
 	// Returned by DeltaStore.Enqueue when callers provide a non-empty Delta.ID.
 	ErrDeltaIDProvided = errors.New("delta id must be empty")
+	// Returned by EnqueueBatch when a delta does not provide a dedup window.
+	ErrDedupWindowRequired = errors.New("dedup window is required")
+	// Returned by EnqueueBatch when deltas do not all use the same window.
+	ErrMixedDedupWindows = errors.New("enqueue batch must use one dedup window")
+	// Returned by EnqueueBatch when the batch exceeds the store's configured maximum.
+	ErrEnqueueBatchTooLarge = errors.New("enqueue batch exceeds maximum size")
 	// Returned by JobStore.Create when an outbox job omits DeltaID.
 	ErrOutboxJobNeedsDelta = errors.New("outbox job requires delta id")
 	// Returned by JobStore.Create when callers provide a non-empty SyncJob.ID.

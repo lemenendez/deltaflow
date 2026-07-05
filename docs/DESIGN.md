@@ -484,7 +484,188 @@ If the transaction rolls back, the Delta rolls back too.
 
 ---
 
-### 3.10 Sync
+### 3.10 Backfill
+
+Backfill support is not a managed backfill engine.
+Backfill is safe batch enqueue, not a second runtime.
+- Windowed idempotent enqueue is a DeltaStore capability.
+- DedupWindow prevents duplicate storms. EnqueueBatch provides insertion
+throughput. 
+- ApplyBatch provides destination throughput.
+- DeltaFlow returns enqueue results. 
+- The caller owns the source checkpoint.
+- A batch is transactional. 
+- A whole backfill is not one transaction.
+- For large backfills, callers may split source data into multiple dedup windows and run multiple producer workers.
+
+The design is:
+
+```text
+Backfill = user-owned source scan + DeltaFlow-owned enqueue guardrails
+```
+
+The user owns source enumeration and progress through the source. DeltaFlow does
+not own the source cursor, checkpoint table, chunk table, leases, pause/resume engine, or scheduler.
+
+The foundational primitive is **windowed idempotent enqueue for Deltas**.
+A caller supplies a stable idempotency identity for a logical scan window and the
+Projection identities found in that window. Repeating the same enqueue request
+must not create duplicate logical work, including when a caller retries after an
+ambiguous timeout or restarts and scans the same window again.
+
+This primitive is broader than backfill. Consumers include:
+
+- repair scripts
+- manual re-syncs
+- connectors
+- SDK retries
+- overnight jobs
+- CSV imports
+- API scans
+- migration scripts
+
+Source-specific scanning, checkpointing, chunk sizing, scheduling, and operator
+controls can remain in user code. A managed backfill runtime may be added later
+without making it a prerequisite for safe bulk enqueue.
+
+**Backfill support is built on DeltaStore idempotent enqueue, not on a separate backfill runtime.**
+
+### Windowed idempotent enqueue
+
+A dedup window is an application-defined scope where repeated enqueue requests for the same projection identity collapse into one durable delta.
+
+DeltaStore is able to accept the same logical sync request more than once
+without creating duplicate durable deltas.
+
+The dedup key is derived from:
+
+`DedupWindow + ProjectionType + ProjectionKeyHash`
+
+Inside the same window:
+customer:123 only gets one durable delta
+Across different windows:
+customer:123 may get one delta per window
+
+That is useful because different windows can represent different backfill lanes.
+
+Examples:
+
+`projects-2018-2020
+projects-2021-2024
+projects-2025-2026`
+
+Each window can be processed independently.
+
+### Enqueue Batch
+
+For backfills, the important method is:
+
+`EnqueueBatch(ctx context.Context, deltas []Delta) (*EnqueueBatchResult, error)`
+
+Batch” communicates:
+
+`
+one grouped operation
+one transaction
+one result summary
+one throughput-tuning unit
+`
+
+Result:
+
+```go
+type EnqueueBatchResult struct {
+    RequestedCount int
+    InsertedCount int
+    DuplicateCount int
+    DedupWindow DedupWindow
+}
+```
+
+For large backfills, do not return all hydrated deltas by default.
+
+This is dangerous for 16M rows:
+
+`Deltas []*Delta`
+
+### One batch, one transaction
+
+For `EnqueueBatch`, the store should treat one batch as one transaction:
+
+- begin transaction
+- normalize deltas
+- compute projection key hashes
+- compute dedup keys
+- bulk insert deltas
+- ignore/suppress duplicate dedup keys
+- commit transaction
+- return batch counts
+
+Durable stores also expose `EnqueueBatchTx` for callers that need the batch to
+participate in an existing application transaction. The store neither commits
+nor rolls back a caller-owned transaction.
+
+If a real error happens, rollback the whole batch.
+Duplicates are not real errors.
+They are expected idempotency outcomes.
+
+Suppose a script reads 1,000 customers and calls EnqueueBatch .
+The process crashes after enqueue but before saving the source cursor.
+On restart, the same 1,000 customers are read again.
+Because the same DedupWindow and projection identities are used, DeltaFlow suppresses duplicates.
+The whole backfill is many small committed batches.
+The dedup window prevents duplicate explosions.
+
+The caller owns the source cursor.
+
+Examples:
+
+`last customer id
+last updated_at timestamp
+SQL Server rowversion
+composite cursor
+tenant + id
+year range + id`
+
+DeltaFlow may return durable delta IDs for observability, but those IDs should not be used as the source
+scan cursor.
+
+`DeltaFlow returns enqueue receipts/results.
+The caller owns the source checkpoint.`
+
+### Multiple producer-worker types
+
+These scan source data and call EnqueueBatch .
+They are owned by the application, script, SDK, connector, or data engineer.
+
+`many producer workers -> EnqueueBatch -> DeltaStore -> many sync workers ->
+appliers`
+
+### Queue presure
+
+EnqueueBatch can insert faster than sync workers can apply.
+For large backfills, this can create a huge pending queue.
+
+Guardrails:
+
+```text
+one non-empty dedup window per batch
+default maximum 1,000 deltas per batch, configurable per store
+batch size tuning
+sleep between batches
+max pending threshold
+queue depth check
+producer rate limiting
+more sync workers
+```
+
+A future helper could expose queue depth:
+
+`CountPending(ctx, projectionType)`
+
+---
+
+### 3.11 Sync
 
 
 It connects:
@@ -514,7 +695,7 @@ It is a small source-to-derived-system synchronization route.
 
 ---
 
-### 3.11 SyncWorker
+### 3.12 SyncWorker
 
 A SyncWorker is the runtime process that dispatches Deltas, claims SyncJobs, and executes a Sync.
 
@@ -558,7 +739,7 @@ with `context.Canceled` after heartbeat-triggered cancellation.
 
 ---
 
-### 3.12 Delta Ghost
+### 3.13 Delta Ghost
 
 A Delta Ghost is a Projection Identity that produced a Delta but no longer exists when latest-state synchronization runs.
 
@@ -1134,7 +1315,7 @@ full customer data
 ## 13. Design Rules
 
 1. current default runtime path is `latest_state`; additional timing modes are roadmap-scoped.
-2. current version supports one Projector and one ProjectionApplier per SyncWorker configuration.
+2. Current version supports one Projector and one ProjectionApplier per SyncWorker configuration.
 3. Do not implement a connector registry.
 4. Do not implement fan-out.
 5. Do not implement envelopes or codecs.

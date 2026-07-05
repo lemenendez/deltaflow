@@ -39,6 +39,86 @@ func (s *DeltaStore) EnqueueInTx(ctx context.Context, tx *sql.Tx, delta deltaflo
 	return s.enqueue(ctx, tx, tx, delta)
 }
 
+func (s *DeltaStore) EnqueueBatch(ctx context.Context, deltas []deltaflow.Delta) (result *deltaflow.EnqueueBatchResult, err error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	result, err = s.EnqueueBatchTx(ctx, tx, deltas)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// EnqueueBatchTx atomically enqueues a batch using a caller-owned transaction.
+// It never commits or rolls back the transaction.
+func (s *DeltaStore) EnqueueBatchTx(ctx context.Context, tx *sql.Tx, deltas []deltaflow.Delta) (*deltaflow.EnqueueBatchResult, error) {
+	if tx == nil {
+		return nil, errors.New("delta store requires transaction")
+	}
+	window, err := s.ValidateEnqueueBatch(ctx, deltas)
+	if err != nil {
+		return nil, err
+	}
+	result := &deltaflow.EnqueueBatchResult{RequestedCount: len(deltas), DedupWindow: window}
+	if len(deltas) == 0 {
+		return result, nil
+	}
+
+	type preparedDelta struct {
+		delta         deltaflow.Delta
+		key, metadata []byte
+		id            string
+	}
+	prepared := make([]preparedDelta, len(deltas))
+	for i, delta := range deltas {
+		if delta.ID != "" {
+			return nil, deltaflow.ErrDeltaIDProvided
+		}
+		normalized, key, metadata, prepErr := s.PrepareDeltaForEnqueue(delta)
+		if prepErr != nil {
+			return nil, prepErr
+		}
+		id, idErr := newID("delta", normalized.CreatedAt)
+		if idErr != nil {
+			return nil, idErr
+		}
+		prepared[i] = preparedDelta{normalized, key, metadata, id}
+	}
+	for _, item := range prepared {
+		res, execErr := tx.ExecContext(ctx, `
+INSERT INTO deltaflow_deltas
+(id, sync_id, origin, projection_type, projection_key, projection_key_hash, dedup_window, dedup_key, state, occurred_at_micros, created_at_micros, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, item.id, item.delta.SyncID, item.delta.Origin,
+			item.delta.ProjectionType, string(item.key), item.delta.ProjectionKeyHash, item.delta.DedupWindow,
+			item.delta.DedupKey, item.delta.State, microsFromTime(item.delta.OccurredAt),
+			microsFromTime(item.delta.CreatedAt), string(item.metadata))
+		if execErr != nil {
+			return nil, execErr
+		}
+		count, countErr := res.RowsAffected()
+		if countErr != nil {
+			return nil, countErr
+		}
+		if count == 1 {
+			result.InsertedCount++
+		} else {
+			result.DuplicateCount++
+		}
+	}
+	return result, nil
+}
+
 func (s *DeltaStore) enqueue(ctx context.Context, exec execContextExecutor, queryer queryRowContextExecutor, delta deltaflow.Delta) (*deltaflow.Delta, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -64,18 +144,23 @@ INSERT INTO deltaflow_deltas (
 	projection_type,
 	projection_key,
 	projection_key_hash,
+	dedup_window,
+	dedup_key,
 	state,
 	occurred_at_micros,
 	created_at_micros,
 	metadata
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?)
+ON CONFLICT(dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`,
 		id,
 		normalized.SyncID,
 		normalized.Origin,
 		normalized.ProjectionType,
 		string(projectionKeyJSON),
 		normalized.ProjectionKeyHash,
+		normalized.DedupWindow,
+		normalized.DedupKey,
 		normalized.State,
 		microsFromTime(normalized.OccurredAt),
 		microsFromTime(normalized.CreatedAt),
@@ -83,6 +168,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if normalized.DedupKey != "" {
+		var existingID string
+		if queryErr := queryer.QueryRowContext(ctx, `SELECT id FROM deltaflow_deltas WHERE dedup_key = ?`, normalized.DedupKey).Scan(&existingID); queryErr != nil {
+			return nil, queryErr
+		}
+		id = existingID
 	}
 
 	inserted, ok, err := s.getWithQueryer(ctx, queryer, deltaflow.DeltaID(id))
@@ -112,6 +204,8 @@ SELECT
 	projection_type,
 	projection_key,
 	projection_key_hash,
+	dedup_window,
+	dedup_key,
 	state,
 	occurred_at_micros,
 	created_at_micros,
@@ -146,6 +240,8 @@ SELECT
 	projection_type,
 	projection_key,
 	projection_key_hash,
+	dedup_window,
+	dedup_key,
 	state,
 	occurred_at_micros,
 	created_at_micros,
@@ -258,6 +354,8 @@ func scanDelta(scanner rowScanner) (*deltaflow.Delta, error) {
 		projectionType    string
 		projectionKeyText string
 		projectionKeyHash string
+		dedupWindow       sql.NullString
+		dedupKey          sql.NullString
 		state             string
 		occurredAtMicros  int64
 		createdAtMicros   int64
@@ -272,6 +370,8 @@ func scanDelta(scanner rowScanner) (*deltaflow.Delta, error) {
 		&projectionType,
 		&projectionKeyText,
 		&projectionKeyHash,
+		&dedupWindow,
+		&dedupKey,
 		&state,
 		&occurredAtMicros,
 		&createdAtMicros,
@@ -300,6 +400,8 @@ func scanDelta(scanner rowScanner) (*deltaflow.Delta, error) {
 		ProjectionType:    deltaflow.ProjectionType(projectionType),
 		ProjectionKey:     projectionKey,
 		ProjectionKeyHash: deltaflow.ProjectionKeyHash(projectionKeyHash),
+		DedupWindow:       deltaflow.DedupWindow(dedupWindow.String),
+		DedupKey:          deltaflow.DedupKey(dedupKey.String),
 		State:             deltaflow.DeltaState(state),
 		OccurredAt:        timeFromMicros(occurredAtMicros),
 		CreatedAt:         timeFromMicros(createdAtMicros),

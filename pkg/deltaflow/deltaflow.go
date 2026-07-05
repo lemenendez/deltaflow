@@ -83,6 +83,21 @@ const (
 
 type ProjectionKeyHash string
 
+// DedupWindow identifies one caller-defined idempotency scope.
+type DedupWindow string
+
+// DedupKey is the store-computed identity of a delta within a dedup window.
+type DedupKey string
+
+const DefaultMaxEnqueueBatchSize = 1000
+
+type EnqueueBatchResult struct {
+	RequestedCount int
+	InsertedCount  int
+	DuplicateCount int
+	DedupWindow    DedupWindow
+}
+
 type ProjectionOperation struct {
 	Type       ProjectionOperationType
 	Identity   ProjectionIdentity
@@ -115,6 +130,7 @@ type Engine interface {
 
 type DeltaStore interface {
 	Enqueue(ctx context.Context, delta Delta) (*Delta, error)
+	EnqueueBatch(ctx context.Context, deltas []Delta) (*EnqueueBatchResult, error)
 	Get(ctx context.Context, deltaID DeltaID) (*Delta, bool, error)
 	Pull(ctx context.Context, syncID SyncID, limit int) ([]*Delta, error)
 	MarkDispatched(ctx context.Context, deltaID DeltaID) error

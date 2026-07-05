@@ -1,6 +1,7 @@
 package connectors
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -15,7 +16,8 @@ import (
 
 // DeltaStoreConfig configures shared behavior for durable delta stores.
 type DeltaStoreConfig struct {
-	Now func() time.Time
+	Now                 func() time.Time
+	MaxEnqueueBatchSize int
 }
 
 // DeltaStoreBase contains SQL-agnostic helpers shared by durable delta stores.
@@ -27,6 +29,9 @@ type DeltaStoreBase struct {
 func NewDeltaStoreBase(db *sql.DB, cfg DeltaStoreConfig) DeltaStoreBase {
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if cfg.MaxEnqueueBatchSize <= 0 {
+		cfg.MaxEnqueueBatchSize = deltaflow.DefaultMaxEnqueueBatchSize
 	}
 	return DeltaStoreBase{DB: db, cfg: cfg}
 }
@@ -57,6 +62,11 @@ func (b *DeltaStoreBase) PrepareDeltaForEnqueue(delta deltaflow.Delta) (deltaflo
 		return deltaflow.Delta{}, nil, nil, err
 	}
 	delta.ProjectionKeyHash = hash
+	if delta.DedupWindow != "" {
+		delta.DedupKey = DedupKey(delta.DedupWindow, delta.ProjectionType, hash)
+	} else {
+		delta.DedupKey = ""
+	}
 
 	projectionKeyJSON, err := json.Marshal(delta.ProjectionKey)
 	if err != nil {
@@ -70,6 +80,41 @@ func (b *DeltaStoreBase) PrepareDeltaForEnqueue(delta deltaflow.Delta) (deltaflo
 	return delta, projectionKeyJSON, metadataJSON, nil
 }
 
+// DedupKey deterministically identifies one projection identity in a window.
+func DedupKey(window deltaflow.DedupWindow, projectionType deltaflow.ProjectionType, keyHash deltaflow.ProjectionKeyHash) deltaflow.DedupKey {
+	h := sha256.New()
+	for _, value := range []string{string(window), string(projectionType), string(keyHash)} {
+		_, _ = h.Write([]byte{byte(len(value) >> 24), byte(len(value) >> 16), byte(len(value) >> 8), byte(len(value))})
+		_, _ = h.Write([]byte(value))
+	}
+	return deltaflow.DedupKey(hex.EncodeToString(h.Sum(nil)))
+}
+
+func (b *DeltaStoreBase) ValidateEnqueueBatch(ctx context.Context, deltas []deltaflow.Delta) (deltaflow.DedupWindow, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if len(deltas) > b.cfg.MaxEnqueueBatchSize {
+		return "", deltaflow.ErrEnqueueBatchTooLarge
+	}
+	if len(deltas) == 0 {
+		return "", nil
+	}
+	window := deltas[0].DedupWindow
+	if window == "" {
+		return "", deltaflow.ErrDedupWindowRequired
+	}
+	for _, delta := range deltas[1:] {
+		if delta.DedupWindow == "" {
+			return "", deltaflow.ErrDedupWindowRequired
+		}
+		if delta.DedupWindow != window {
+			return "", deltaflow.ErrMixedDedupWindows
+		}
+	}
+	return window, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -81,6 +126,8 @@ func (b *DeltaStoreBase) ScanDelta(scanner rowScanner) (*deltaflow.Delta, error)
 		origin            string
 		projectionType    string
 		projectionKeyHash string
+		dedupWindow       sql.NullString
+		dedupKey          sql.NullString
 		state             string
 		projectionKeyJSON []byte
 		metadataJSON      []byte
@@ -96,6 +143,8 @@ func (b *DeltaStoreBase) ScanDelta(scanner rowScanner) (*deltaflow.Delta, error)
 		&projectionType,
 		&projectionKeyJSON,
 		&projectionKeyHash,
+		&dedupWindow,
+		&dedupKey,
 		&state,
 		&occurredAt,
 		&createdAt,
@@ -127,6 +176,8 @@ func (b *DeltaStoreBase) ScanDelta(scanner rowScanner) (*deltaflow.Delta, error)
 		ProjectionType:    deltaflow.ProjectionType(projectionType),
 		ProjectionKey:     projectionKey,
 		ProjectionKeyHash: deltaflow.ProjectionKeyHash(projectionKeyHash),
+		DedupWindow:       deltaflow.DedupWindow(dedupWindow.String),
+		DedupKey:          deltaflow.DedupKey(dedupKey.String),
 		State:             deltaflow.DeltaState(state),
 		OccurredAt:        occurredAt.UTC(),
 		CreatedAt:         createdAt.UTC(),

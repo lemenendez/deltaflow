@@ -60,6 +60,8 @@ RETURNING
 	projection_type,
 	projection_key,
 	projection_key_hash,
+	dedup_window,
+	dedup_key,
 	state,
 	occurred_at,
 	created_at,
@@ -76,9 +78,13 @@ INSERT INTO deltaflow.deltaflow_deltas (
 	state,
 	occurred_at,
 	created_at,
-	metadata
+	metadata,
+	dedup_window,
+	dedup_key
 )
-VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb)
+VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, NULLIF($10, ''), NULLIF($11, ''))
+ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL
+DO UPDATE SET dedup_key = EXCLUDED.dedup_key
 `+returning,
 		normalized.SyncID,
 		normalized.Origin,
@@ -89,6 +95,8 @@ VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb)
 		normalized.OccurredAt,
 		normalized.CreatedAt,
 		metadataJSON,
+		normalized.DedupWindow,
+		normalized.DedupKey,
 	)
 
 	inserted, err := s.ScanDelta(row)
@@ -96,6 +104,80 @@ VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb)
 		return nil, err
 	}
 	return inserted, nil
+}
+
+func (s *DeltaStore) EnqueueBatch(ctx context.Context, deltas []deltaflow.Delta) (result *deltaflow.EnqueueBatchResult, err error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	result, err = s.EnqueueBatchTx(ctx, tx, deltas)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// EnqueueBatchTx atomically enqueues a batch using a caller-owned transaction.
+// It never commits or rolls back the transaction.
+func (s *DeltaStore) EnqueueBatchTx(ctx context.Context, tx *sql.Tx, deltas []deltaflow.Delta) (*deltaflow.EnqueueBatchResult, error) {
+	if tx == nil {
+		return nil, errors.New("delta store requires transaction")
+	}
+	window, err := s.ValidateEnqueueBatch(ctx, deltas)
+	if err != nil {
+		return nil, err
+	}
+	result := &deltaflow.EnqueueBatchResult{RequestedCount: len(deltas), DedupWindow: window}
+	if len(deltas) == 0 {
+		return result, nil
+	}
+
+	type preparedDelta struct {
+		delta         deltaflow.Delta
+		key, metadata []byte
+	}
+	prepared := make([]preparedDelta, len(deltas))
+	for i, delta := range deltas {
+		if delta.ID != "" {
+			return nil, deltaflow.ErrDeltaIDProvided
+		}
+		normalized, key, metadata, prepErr := s.PrepareDeltaForEnqueue(delta)
+		if prepErr != nil {
+			return nil, prepErr
+		}
+		prepared[i] = preparedDelta{normalized, key, metadata}
+	}
+	for _, item := range prepared {
+		res, execErr := tx.ExecContext(ctx, `
+INSERT INTO deltaflow.deltaflow_deltas
+(sync_id, origin, projection_type, projection_key, projection_key_hash, state, occurred_at, created_at, metadata, dedup_window, dedup_key)
+VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11)
+ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, item.delta.SyncID, item.delta.Origin,
+			item.delta.ProjectionType, item.key, item.delta.ProjectionKeyHash, item.delta.State,
+			item.delta.OccurredAt, item.delta.CreatedAt, item.metadata, item.delta.DedupWindow, item.delta.DedupKey)
+		if execErr != nil {
+			return nil, execErr
+		}
+		count, countErr := res.RowsAffected()
+		if countErr != nil {
+			return nil, countErr
+		}
+		if count == 1 {
+			result.InsertedCount++
+		} else {
+			result.DuplicateCount++
+		}
+	}
+	return result, nil
 }
 
 func (s *DeltaStore) Get(ctx context.Context, deltaID deltaflow.DeltaID) (*deltaflow.Delta, bool, error) {
@@ -111,6 +193,8 @@ SELECT
 	projection_type,
 	projection_key,
 	projection_key_hash,
+	dedup_window,
+	dedup_key,
 	state,
 	occurred_at,
 	created_at,
@@ -145,6 +229,8 @@ SELECT
 	projection_type,
 	projection_key,
 	projection_key_hash,
+	dedup_window,
+	dedup_key,
 	state,
 	occurred_at,
 	created_at,
