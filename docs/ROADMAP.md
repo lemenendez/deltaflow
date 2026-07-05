@@ -125,17 +125,23 @@
 
 ## v0.12.0 - Backfills
 - [ ] Document backfill as user-owned scan + EnqueueBatch
--[ ] Provide NewBackfillDelta helper
--[ ] Provide SQL seek-pagination example
--[ ] Provide high-watermark example
--[ ] Provide caller-owned cursor recovery example
--[ ] Provide Elasticsearch population example
--[ ] Provide large-backfill guidance:
+- [ ] Enqueue deltas for an existing source universe
+- [ ] Provide NewBackfillDelta helper
+- [ ] Provide SQL seek-pagination example
+- [ ] Provide high-watermark example
+- [ ] Provide caller-owned cursor recovery example
+- [ ] Support restart-safe backfills through application-provided stable ordering and optional checkpoint token
+- [ ] Support multiple workers for Postgres-backed backfills using existing lease/batch semantics
+- [ ] Keep SQLite backfills single-worker only
+- [ ] Support dry-run mode where practical
+- [ ] Provide Elasticsearch population example
+- [ ] Provide large-backfill guidance:
   - batch size
   - queue pacing
   - worker count
   - destination bulk APIs
   - retention/pruning
+- [ ] Document that DeltaFlow does not own source enumeration state unless the application provides a checkpoint strategy
 - [ ] Define compatibility of each timing mode with backfills
 - [ ] Add backfill playground: seed source records -> run backfill -> observe destination catch up
 - [ ] Include large-source playground scenario with fixed seed/count
