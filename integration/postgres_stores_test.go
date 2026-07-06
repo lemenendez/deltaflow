@@ -127,6 +127,58 @@ func TestPostgresContainer_DeltaPullIsSyncScoped(t *testing.T) {
 	}
 }
 
+func TestPostgresContainer_EnqueueDuplicateReturnsExistingDelta(t *testing.T) {
+	ctx, _, deltaStore, _, _ := withPostgresStores(t)
+	delta := deltaflow.Delta{
+		SyncID:         syncA,
+		Origin:         deltaflow.OriginOperationInserted,
+		ProjectionType: "Contact",
+		ProjectionKey:  contactKey("dedup-existing"),
+		DedupWindow:    "contacts-2026",
+	}
+
+	first, err := deltaStore.Enqueue(ctx, delta)
+	if err != nil {
+		t.Fatalf("first enqueue: %v", err)
+	}
+	duplicate, err := deltaStore.Enqueue(ctx, delta)
+	if err != nil {
+		t.Fatalf("duplicate enqueue: %v", err)
+	}
+
+	if duplicate.ID != first.ID {
+		t.Fatalf("duplicate ID = %s, want existing ID %s", duplicate.ID, first.ID)
+	}
+	if duplicate.DedupKey == "" || duplicate.DedupKey != first.DedupKey {
+		t.Fatalf("duplicate dedup_key = %q, want %q", duplicate.DedupKey, first.DedupKey)
+	}
+}
+
+func TestPostgresContainer_EnqueueBatchCountsInsertedAndDuplicates(t *testing.T) {
+	ctx, _, deltaStore, _, _ := withPostgresStores(t)
+	deltas := []deltaflow.Delta{
+		{SyncID: syncA, ProjectionType: "Contact", ProjectionKey: contactKey("batch-1"), DedupWindow: "contacts-batch-2026"},
+		{SyncID: syncA, ProjectionType: "Contact", ProjectionKey: contactKey("batch-2"), DedupWindow: "contacts-batch-2026"},
+		{SyncID: syncA, ProjectionType: "Contact", ProjectionKey: contactKey("batch-1"), DedupWindow: "contacts-batch-2026"},
+	}
+
+	first, err := deltaStore.EnqueueBatch(ctx, deltas)
+	if err != nil {
+		t.Fatalf("first enqueue batch: %v", err)
+	}
+	if first.RequestedCount != 3 || first.InsertedCount != 2 || first.DuplicateCount != 1 {
+		t.Fatalf("first enqueue batch result = %#v, want requested=3 inserted=2 duplicates=1", first)
+	}
+
+	second, err := deltaStore.EnqueueBatch(ctx, deltas)
+	if err != nil {
+		t.Fatalf("second enqueue batch: %v", err)
+	}
+	if second.RequestedCount != 3 || second.InsertedCount != 0 || second.DuplicateCount != 3 {
+		t.Fatalf("second enqueue batch result = %#v, want requested=3 inserted=0 duplicates=3", second)
+	}
+}
+
 func TestPostgresContainer_EnqueueInTxCommitsWithApplicationWrite(t *testing.T) {
 	ctx, db, deltaStore, _, _ := withPostgresStores(t)
 
