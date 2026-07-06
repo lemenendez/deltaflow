@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lemenendez/deltaflow/pkg/connectors"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
@@ -89,7 +90,7 @@ func (s *DeltaMemoryStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (
 	}
 	delta.ProjectionKeyHash = hash
 	if delta.DedupWindow != "" {
-		delta.DedupKey = memoryDedupKey(delta.DedupWindow, delta.ProjectionType, hash)
+		delta.DedupKey = connectors.DedupKey(delta.DedupWindow, delta.ProjectionType, hash)
 		if id, ok := s.dedup[delta.DedupKey]; ok {
 			return cloneDelta(s.deltas[id]), nil
 		}
@@ -126,7 +127,7 @@ func (s *DeltaMemoryStore) EnqueueBatch(ctx context.Context, deltas []deltaflow.
 			return nil, hashErr
 		}
 		delta.ProjectionKeyHash = hash
-		delta.DedupKey = memoryDedupKey(window, delta.ProjectionType, hash)
+		delta.DedupKey = connectors.DedupKey(window, delta.ProjectionType, hash)
 		prepared[i] = delta
 	}
 
@@ -183,15 +184,6 @@ func validateEnqueueBatch(ctx context.Context, deltas []deltaflow.Delta, maxSize
 		}
 	}
 	return window, nil
-}
-
-func memoryDedupKey(window deltaflow.DedupWindow, projectionType deltaflow.ProjectionType, keyHash deltaflow.ProjectionKeyHash) deltaflow.DedupKey {
-	h := sha256.New()
-	for _, value := range []string{string(window), string(projectionType), string(keyHash)} {
-		h.Write([]byte{byte(len(value) >> 24), byte(len(value) >> 16), byte(len(value) >> 8), byte(len(value))})
-		h.Write([]byte(value))
-	}
-	return deltaflow.DedupKey(hex.EncodeToString(h.Sum(nil)))
 }
 
 func (s *DeltaMemoryStore) Get(ctx context.Context, deltaID deltaflow.DeltaID) (*deltaflow.Delta, bool, error) {
