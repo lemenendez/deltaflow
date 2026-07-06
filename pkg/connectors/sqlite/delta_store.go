@@ -136,7 +136,7 @@ func (s *DeltaStore) enqueue(ctx context.Context, exec execContextExecutor, quer
 		return nil, err
 	}
 
-	_, err = exec.ExecContext(ctx, `
+	result, err := exec.ExecContext(ctx, `
 INSERT INTO deltaflow_deltas (
 	id,
 	sync_id,
@@ -169,7 +169,11 @@ ON CONFLICT(dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`,
 	if err != nil {
 		return nil, err
 	}
-	if normalized.DedupKey != "" {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rowsAffected == 0 && normalized.DedupKey != "" {
 		var existingID string
 		if queryErr := queryer.QueryRowContext(ctx, `SELECT id FROM deltaflow_deltas WHERE dedup_key = ?`, normalized.DedupKey).Scan(&existingID); queryErr != nil {
 			return nil, queryErr
