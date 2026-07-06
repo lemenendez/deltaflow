@@ -550,10 +550,11 @@ That is useful because different windows can represent different backfill lanes.
 
 Examples:
 
-`projects-2018-2020
+~~~text
+projects-2018-2020
 projects-2021-2024
-projects-2025-2026`
-
+projects-2025-2026
+~~~
 Each window can be processed independently.
 
 ### Enqueue Batch
