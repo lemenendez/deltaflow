@@ -76,10 +76,14 @@ func applyDeltaDedupMigration(ctx context.Context, db *sql.DB) error {
 		var name, columnType string
 		var defaultValue any
 		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err

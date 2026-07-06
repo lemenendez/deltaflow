@@ -84,7 +84,7 @@ INSERT INTO deltaflow.deltaflow_deltas (
 )
 VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, NULLIF($10, ''), NULLIF($11, ''))
 ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL
-DO UPDATE SET dedup_key = EXCLUDED.dedup_key
+DO NOTHING
 `+returning,
 		normalized.SyncID,
 		normalized.Origin,
@@ -100,6 +100,30 @@ DO UPDATE SET dedup_key = EXCLUDED.dedup_key
 	)
 
 	inserted, err := s.ScanDelta(row)
+	if errors.Is(err, sql.ErrNoRows) && normalized.DedupKey != "" {
+		// A duplicate is an idempotent read, not an update. Keep this as a
+		// separate statement rather than a CTE: if the INSERT waits for a
+		// concurrent transaction to commit, READ COMMITTED gives this SELECT a
+		// fresh snapshot that can see the winning row.
+		row = exec.QueryRowContext(ctx, `
+SELECT
+	id::text,
+	sync_id,
+	origin,
+	projection_type,
+	projection_key,
+	projection_key_hash,
+	dedup_window,
+	dedup_key,
+	state,
+	occurred_at,
+	created_at,
+	dispatched_at,
+	metadata
+FROM deltaflow.deltaflow_deltas
+WHERE dedup_key = $1`, normalized.DedupKey)
+		inserted, err = s.ScanDelta(row)
+	}
 	if err != nil {
 		return nil, err
 	}
