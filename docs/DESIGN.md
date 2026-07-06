@@ -489,10 +489,9 @@ If the transaction rolls back, the Delta rolls back too.
 Backfill support is not a managed backfill engine.
 Backfill is safe batch enqueue, not a second runtime.
 - Windowed idempotent enqueue is a DeltaStore capability.
-- DedupWindow prevents duplicate storms. EnqueueBatch provides insertion
-throughput. 
+- DedupWindow prevents duplicate storms. EnqueueBatch provides insertion throughput.
 - ApplyBatch provides destination throughput.
-- DeltaFlow returns enqueue results. 
+- DeltaFlow returns enqueue results.
 - The caller owns the source checkpoint.
 - A batch is transactional. 
 - A whole backfill is not one transaction.
