@@ -610,7 +610,7 @@ If a real error happens, rollback the whole batch.
 Duplicates are not real errors.
 They are expected idempotency outcomes.
 
-Suppose a script reads 1,000 customers and calls EnqueueBatch .
+Suppose a script reads 1,000 customers and calls EnqueueBatch.
 The process crashes after enqueue but before saving the source cursor.
 On restart, the same 1,000 customers are read again.
 Because the same DedupWindow and projection identities are used, DeltaFlow suppresses duplicates.
