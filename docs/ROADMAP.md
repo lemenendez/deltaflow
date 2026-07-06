@@ -128,6 +128,7 @@
 - [ ] Enqueue deltas for an existing source universe
 - [ ] Provide NewBackfillDelta helper
 - [ ] Provide SQL seek-pagination example
+- [ ] Evaluate bulk inserts as an optional EnqueueBatch performance optimization
 - [ ] Provide high-watermark example
 - [ ] Provide caller-owned cursor recovery example
 - [ ] Support restart-safe backfills through application-provided stable ordering and optional checkpoint token

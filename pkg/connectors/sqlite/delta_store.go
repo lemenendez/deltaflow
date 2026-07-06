@@ -94,12 +94,18 @@ func (s *DeltaStore) EnqueueBatchTx(ctx context.Context, tx *sql.Tx, deltas []de
 		}
 		prepared[i] = preparedDelta{normalized, key, metadata, id}
 	}
-	for _, item := range prepared {
-		res, execErr := tx.ExecContext(ctx, `
+	stmt, err := tx.PrepareContext(ctx, `
 INSERT INTO deltaflow_deltas
 (id, sync_id, origin, projection_type, projection_key, projection_key_hash, dedup_window, dedup_key, state, occurred_at_micros, created_at_micros, metadata)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, item.id, item.delta.SyncID, item.delta.Origin,
+ON CONFLICT(dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, item := range prepared {
+		res, execErr := stmt.ExecContext(ctx, item.id, item.delta.SyncID, item.delta.Origin,
 			item.delta.ProjectionType, string(item.key), item.delta.ProjectionKeyHash, item.delta.DedupWindow,
 			item.delta.DedupKey, item.delta.State, microsFromTime(item.delta.OccurredAt),
 			microsFromTime(item.delta.CreatedAt), string(item.metadata))

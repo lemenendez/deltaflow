@@ -180,12 +180,18 @@ func (s *DeltaStore) EnqueueBatchTx(ctx context.Context, tx *sql.Tx, deltas []de
 		}
 		prepared[i] = preparedDelta{normalized, key, metadata}
 	}
-	for _, item := range prepared {
-		res, execErr := tx.ExecContext(ctx, `
+	stmt, err := tx.PrepareContext(ctx, `
 INSERT INTO deltaflow.deltaflow_deltas
 (sync_id, origin, projection_type, projection_key, projection_key_hash, state, occurred_at, created_at, metadata, dedup_window, dedup_key)
 VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11)
-ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`, item.delta.SyncID, item.delta.Origin,
+ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, item := range prepared {
+		res, execErr := stmt.ExecContext(ctx, item.delta.SyncID, item.delta.Origin,
 			item.delta.ProjectionType, item.key, item.delta.ProjectionKeyHash, item.delta.State,
 			item.delta.OccurredAt, item.delta.CreatedAt, item.metadata, item.delta.DedupWindow, item.delta.DedupKey)
 		if execErr != nil {

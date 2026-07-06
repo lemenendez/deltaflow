@@ -596,7 +596,7 @@ For `EnqueueBatch`, the store should treat one batch as one transaction:
 - normalize deltas
 - compute projection key hashes
 - compute dedup keys
-- bulk insert deltas
+- insert deltas within the transaction
 - ignore/suppress duplicate dedup keys
 - commit transaction
 - return batch counts
