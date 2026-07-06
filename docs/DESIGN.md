@@ -638,7 +638,7 @@ The caller owns the source checkpoint.`
 
 ### Multiple producer-worker types
 
-These scan source data and call EnqueueBatch .
+These scan source data and call EnqueueBatch.
 They are owned by the application, script, SDK, connector, or data engineer.
 
 `many producer workers -> EnqueueBatch -> DeltaStore -> many sync workers ->
