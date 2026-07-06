@@ -644,7 +644,7 @@ They are owned by the application, script, SDK, connector, or data engineer.
 `many producer workers -> EnqueueBatch -> DeltaStore -> many sync workers ->
 appliers`
 
-### Queue presure
+### Queue pressure
 
 EnqueueBatch can insert faster than sync workers can apply.
 For large backfills, this can create a huge pending queue.
