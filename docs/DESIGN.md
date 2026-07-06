@@ -562,14 +562,14 @@ For backfills, the important method is:
 
 `EnqueueBatch(ctx context.Context, deltas []Delta) (*EnqueueBatchResult, error)`
 
-Batch” communicates:
+Batch communicates:
 
-`
+~~~text
 one grouped operation
 one transaction
 one result summary
 one throughput-tuning unit
-`
+~~~
 
 Result:
 
