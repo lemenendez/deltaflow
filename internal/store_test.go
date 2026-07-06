@@ -90,6 +90,18 @@ func TestDeltaMemoryStoreEnqueueReturnsExistingWindowDuplicate(t *testing.T) {
 	if second.ID != first.ID || second.DedupKey == "" {
 		t.Fatalf("duplicate = %#v, first = %#v", second, first)
 	}
+	next, err := store.Enqueue(context.Background(), deltaflow.Delta{
+		SyncID:         "sync",
+		ProjectionType: "Customer",
+		ProjectionKey:  deltaflow.ProjectionKey{"id": json.RawMessage(`"2"`)},
+		DedupWindow:    "window",
+	})
+	if err != nil {
+		t.Fatalf("next unique Enqueue: %v", err)
+	}
+	if next.ID != "delta-2" {
+		t.Fatalf("next unique ID = %s, want delta-2", next.ID)
+	}
 }
 
 func TestDeltaMemoryStoreEnqueueBatchGuardrails(t *testing.T) {

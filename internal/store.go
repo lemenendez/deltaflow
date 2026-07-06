@@ -92,6 +92,7 @@ func (s *DeltaMemoryStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (
 	if delta.DedupWindow != "" {
 		delta.DedupKey = connectors.DedupKey(delta.DedupWindow, delta.ProjectionType, hash)
 		if id, ok := s.dedup[delta.DedupKey]; ok {
+			s.nextID--
 			return cloneDelta(s.deltas[id]), nil
 		}
 	} else {
