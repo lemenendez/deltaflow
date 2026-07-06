@@ -620,12 +620,14 @@ The caller owns the source cursor.
 
 Examples:
 
-`last customer id
+~~~text
+last customer id
 last updated_at timestamp
 SQL Server rowversion
 composite cursor
 tenant + id
-year range + id`
+year range + id
+~~~
 
 DeltaFlow may return durable delta IDs for observability, but those IDs should not be used as the source
 scan cursor.
