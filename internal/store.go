@@ -90,7 +90,7 @@ func (s *DeltaMemoryStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (
 	}
 	delta.ProjectionKeyHash = hash
 	if delta.DedupWindow != "" {
-		delta.DedupKey = connectors.DedupKey(delta.DedupWindow, delta.ProjectionType, hash)
+		delta.DedupKey = connectors.ComputeDedupKey(delta.DedupWindow, delta.ProjectionType, hash)
 		if id, ok := s.dedup[delta.DedupKey]; ok {
 			s.nextID--
 			return cloneDelta(s.deltas[id]), nil
@@ -128,7 +128,7 @@ func (s *DeltaMemoryStore) EnqueueBatch(ctx context.Context, deltas []deltaflow.
 			return nil, hashErr
 		}
 		delta.ProjectionKeyHash = hash
-		delta.DedupKey = connectors.DedupKey(window, delta.ProjectionType, hash)
+		delta.DedupKey = connectors.ComputeDedupKey(window, delta.ProjectionType, hash)
 		prepared[i] = delta
 	}
 

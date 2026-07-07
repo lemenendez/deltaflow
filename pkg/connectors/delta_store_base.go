@@ -64,7 +64,7 @@ func (b *DeltaStoreBase) PrepareDeltaForEnqueue(delta deltaflow.Delta) (deltaflo
 	}
 	delta.ProjectionKeyHash = hash
 	if delta.DedupWindow != "" {
-		delta.DedupKey = DedupKey(delta.DedupWindow, delta.ProjectionType, hash)
+		delta.DedupKey = ComputeDedupKey(delta.DedupWindow, delta.ProjectionType, hash)
 	} else {
 		delta.DedupKey = ""
 	}
@@ -81,8 +81,8 @@ func (b *DeltaStoreBase) PrepareDeltaForEnqueue(delta deltaflow.Delta) (deltaflo
 	return delta, projectionKeyJSON, metadataJSON, nil
 }
 
-// DedupKey deterministically identifies one projection identity in a window.
-func DedupKey(window deltaflow.DedupWindow, projectionType deltaflow.ProjectionType, keyHash deltaflow.ProjectionKeyHash) deltaflow.DedupKey {
+// ComputeDedupKey deterministically identifies one projection identity in a window.
+func ComputeDedupKey(window deltaflow.DedupWindow, projectionType deltaflow.ProjectionType, keyHash deltaflow.ProjectionKeyHash) deltaflow.DedupKey {
 	h := sha256.New()
 	segments := [...]string{string(window), string(projectionType), string(keyHash)}
 	var length [4]byte
