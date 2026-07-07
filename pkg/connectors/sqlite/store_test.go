@@ -62,6 +62,94 @@ func TestDeltaStoreEnqueuePullAndMarkDispatched(t *testing.T) {
 	}
 }
 
+func TestDeltaStoreEnqueueBatchIsWindowIdempotent(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewDeltaStore(db, connectors.DeltaStoreConfig{})
+	deltas := []deltaflow.Delta{
+		{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"1"`)}, DedupWindow: "customers-2026"},
+		{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"2"`)}, DedupWindow: "customers-2026"},
+	}
+	first, err := store.EnqueueBatch(context.Background(), deltas)
+	if err != nil {
+		t.Fatalf("first EnqueueBatch: %v", err)
+	}
+	if first.InsertedCount != 2 || first.DuplicateCount != 0 {
+		t.Fatalf("first result = %#v", first)
+	}
+	second, err := store.EnqueueBatch(context.Background(), deltas)
+	if err != nil {
+		t.Fatalf("second EnqueueBatch: %v", err)
+	}
+	if second.InsertedCount != 0 || second.DuplicateCount != 2 {
+		t.Fatalf("second result = %#v", second)
+	}
+}
+
+func TestDeltaStoreEnqueueReturnsExistingWindowDuplicate(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewDeltaStore(db, connectors.DeltaStoreConfig{})
+	delta := deltaflow.Delta{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"1"`)}, DedupWindow: "window"}
+	first, err := store.Enqueue(context.Background(), delta)
+	if err != nil {
+		t.Fatalf("first Enqueue: %v", err)
+	}
+	second, err := store.Enqueue(context.Background(), delta)
+	if err != nil {
+		t.Fatalf("second Enqueue: %v", err)
+	}
+	if second.ID != first.ID || second.DedupKey == "" {
+		t.Fatalf("duplicate = %#v, first = %#v", second, first)
+	}
+}
+
+func TestDeltaStoreEnqueueBatchTxCommitAndRollback(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewDeltaStore(db, connectors.DeltaStoreConfig{})
+	ctx := context.Background()
+	batch := func(window string) []deltaflow.Delta {
+		return []deltaflow.Delta{{SyncID: "sync", ProjectionType: "Customer", ProjectionKey: deltaflow.ProjectionKey{"id": json.RawMessage(`"1"`)}, DedupWindow: deltaflow.DedupWindow(window)}}
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin commit tx: %v", err)
+	}
+	if _, err = store.EnqueueBatchTx(ctx, tx, batch("commit")); err != nil {
+		t.Fatalf("EnqueueBatchTx commit: %v", err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	tx, err = db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin rollback tx: %v", err)
+	}
+	if _, err = store.EnqueueBatchTx(ctx, tx, batch("rollback")); err != nil {
+		t.Fatalf("EnqueueBatchTx rollback: %v", err)
+	}
+	if err = tx.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	var count int
+	if err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM deltaflow_deltas`).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("durable delta count = %d, want 1", count)
+	}
+}
+
+func TestDeltaStoreConfiguredBatchLimit(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	store := NewDeltaStore(db, connectors.DeltaStoreConfig{MaxEnqueueBatchSize: 1})
+	deltas := []deltaflow.Delta{{DedupWindow: "window"}, {DedupWindow: "window"}}
+	_, err := store.EnqueueBatch(context.Background(), deltas)
+	if !errors.Is(err, deltaflow.ErrEnqueueBatchTooLarge) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDeltaStoreEnqueueReturnsErrorWhenReadBackMissing(t *testing.T) {
 	db := openSQLiteTestDB(t)
 	store := NewDeltaStore(db, connectors.DeltaStoreConfig{})

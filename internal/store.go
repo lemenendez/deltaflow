@@ -14,23 +14,39 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lemenendez/deltaflow/pkg/connectors"
 	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
 )
 
 const defaultMaxAttempts = 5
 
 type DeltaMemoryStore struct {
-	mu     sync.Mutex
-	now    func() time.Time
-	nextID int
+	mu                  sync.Mutex
+	now                 func() time.Time
+	maxEnqueueBatchSize int
+	nextID              int
 
 	deltas map[deltaflow.DeltaID]*deltaflow.Delta
+	dedup  map[deltaflow.DedupKey]deltaflow.DeltaID
 }
 
 func NewDeltaMemoryStore() *DeltaMemoryStore {
+	return NewDeltaMemoryStoreWithConfig(DeltaMemoryStoreConfig{})
+}
+
+type DeltaMemoryStoreConfig struct {
+	MaxEnqueueBatchSize int
+}
+
+func NewDeltaMemoryStoreWithConfig(cfg DeltaMemoryStoreConfig) *DeltaMemoryStore {
+	if cfg.MaxEnqueueBatchSize <= 0 {
+		cfg.MaxEnqueueBatchSize = deltaflow.DefaultMaxEnqueueBatchSize
+	}
 	return &DeltaMemoryStore{
-		now:    func() time.Time { return time.Now().UTC() },
-		deltas: make(map[deltaflow.DeltaID]*deltaflow.Delta),
+		now:                 func() time.Time { return time.Now().UTC() },
+		maxEnqueueBatchSize: cfg.MaxEnqueueBatchSize,
+		deltas:              make(map[deltaflow.DeltaID]*deltaflow.Delta),
+		dedup:               make(map[deltaflow.DedupKey]deltaflow.DeltaID),
 	}
 }
 
@@ -73,11 +89,102 @@ func (s *DeltaMemoryStore) Enqueue(ctx context.Context, delta deltaflow.Delta) (
 		return nil, err
 	}
 	delta.ProjectionKeyHash = hash
+	if delta.DedupWindow != "" {
+		delta.DedupKey = connectors.ComputeDedupKey(delta.DedupWindow, delta.ProjectionType, hash)
+		if id, ok := s.dedup[delta.DedupKey]; ok {
+			s.nextID--
+			return cloneDelta(s.deltas[id]), nil
+		}
+	} else {
+		delta.DedupKey = ""
+	}
 
 	copied := cloneDelta(&delta)
 	s.deltas[delta.ID] = copied
+	if delta.DedupKey != "" {
+		s.dedup[delta.DedupKey] = delta.ID
+	}
 
 	return cloneDelta(copied), nil
+}
+
+func (s *DeltaMemoryStore) EnqueueBatch(ctx context.Context, deltas []deltaflow.Delta) (*deltaflow.EnqueueBatchResult, error) {
+	window, err := validateEnqueueBatch(ctx, deltas, s.maxEnqueueBatchSize)
+	if err != nil {
+		return nil, err
+	}
+	result := &deltaflow.EnqueueBatchResult{RequestedCount: len(deltas), DedupWindow: window}
+	if len(deltas) == 0 {
+		return result, nil
+	}
+
+	prepared := make([]deltaflow.Delta, len(deltas))
+	for i, delta := range deltas {
+		if delta.ID != "" {
+			return nil, deltaflow.ErrDeltaIDProvided
+		}
+		hash, hashErr := projectionKeyHash(delta.ProjectionKey)
+		if hashErr != nil {
+			return nil, hashErr
+		}
+		delta.ProjectionKeyHash = hash
+		delta.DedupKey = connectors.ComputeDedupKey(window, delta.ProjectionType, hash)
+		prepared[i] = delta
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now().UTC()
+	for _, delta := range prepared {
+		if _, exists := s.dedup[delta.DedupKey]; exists {
+			result.DuplicateCount++
+			continue
+		}
+		s.nextID++
+		delta.ID = deltaflow.DeltaID(fmt.Sprintf("delta-%d", s.nextID))
+		if delta.State == "" {
+			delta.State = deltaflow.DeltaPending
+		}
+		if delta.OccurredAt.IsZero() {
+			delta.OccurredAt = now
+		} else {
+			delta.OccurredAt = delta.OccurredAt.UTC()
+		}
+		if delta.CreatedAt.IsZero() {
+			delta.CreatedAt = now
+		} else {
+			delta.CreatedAt = delta.CreatedAt.UTC()
+		}
+		s.deltas[delta.ID] = cloneDelta(&delta)
+		s.dedup[delta.DedupKey] = delta.ID
+		result.InsertedCount++
+	}
+	return result, nil
+}
+
+func validateEnqueueBatch(ctx context.Context, deltas []deltaflow.Delta, maxSize int) (deltaflow.DedupWindow, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if len(deltas) > maxSize {
+		return "", deltaflow.ErrEnqueueBatchTooLarge
+	}
+	if len(deltas) == 0 {
+		return "", nil
+	}
+	window := deltas[0].DedupWindow
+	if window == "" {
+		return "", deltaflow.ErrDedupWindowRequired
+	}
+	for _, delta := range deltas[1:] {
+		if delta.DedupWindow == "" {
+			return "", deltaflow.ErrDedupWindowRequired
+		}
+		if delta.DedupWindow != window {
+			return "", deltaflow.ErrMixedDedupWindows
+		}
+	}
+	return window, nil
 }
 
 func (s *DeltaMemoryStore) Get(ctx context.Context, deltaID deltaflow.DeltaID) (*deltaflow.Delta, bool, error) {

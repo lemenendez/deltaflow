@@ -18,6 +18,8 @@ type Delta struct {
 	ProjectionType    ProjectionType
 	ProjectionKey     ProjectionKey
 	ProjectionKeyHash ProjectionKeyHash
+	DedupWindow       DedupWindow
+	DedupKey          DedupKey
 	State             DeltaState
 
 	OccurredAt   time.Time

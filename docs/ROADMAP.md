@@ -111,13 +111,37 @@
 - [x] Plan doc: [PLAN_v0.11.0.md](PLAN_v0.11.0.md)
 - [x] Release notes draft: [RELEASE_NOTES_V0.11.0.md](RELEASE_NOTES_V0.11.0.md)
 
+## v0.11.1 - Windowed idempotent enqueue
+- [x] Add DedupWindow and DedupKey to Delta
+- [x] Add deterministic dedup key generation
+- [x] Enforce dedup_key uniqueness in DeltaStore
+- [x] Define duplicate behavior:
+  - empty DedupKey: append
+  - set DedupKey: insert once, return existing/suppress duplicate
+- [x] Add EnqueueBatch
+- [x] Add EnqueueBatchTx for durable stores
+- [x] Add EnqueueBatchResult with batch counts
+- [x] Add tests for retrying the same batch safely
+
 ## v0.12.0 - Backfills
-- [ ] Define backfill API and CLI shape
+- [ ] Document backfill as user-owned scan + EnqueueBatch
 - [ ] Enqueue deltas for an existing source universe
+- [ ] Provide NewBackfillDelta helper
+- [ ] Provide SQL seek-pagination example
+- [ ] Evaluate bulk inserts as an optional EnqueueBatch performance optimization
+- [ ] Provide high-watermark example
+- [ ] Provide caller-owned cursor recovery example
+- [ ] Support restart-safe backfills through application-provided stable ordering and optional checkpoint token
 - [ ] Support multiple workers for Postgres-backed backfills using existing lease/batch semantics
 - [ ] Keep SQLite backfills single-worker only
-- [ ] Support restart-safe backfills through application-provided stable ordering and optional checkpoint token
 - [ ] Support dry-run mode where practical
+- [ ] Provide Elasticsearch population example
+- [ ] Provide large-backfill guidance:
+  - batch size
+  - queue pacing
+  - worker count
+  - destination bulk APIs
+  - retention/pruning
 - [ ] Document that DeltaFlow does not own source enumeration state unless the application provides a checkpoint strategy
 - [ ] Define compatibility of each timing mode with backfills
 - [ ] Add backfill playground: seed source records -> run backfill -> observe destination catch up

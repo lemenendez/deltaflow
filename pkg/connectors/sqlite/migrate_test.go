@@ -46,6 +46,13 @@ func TestApplyMigrationsCreatesTables(t *testing.T) {
 	}
 }
 
+func TestApplyMigrationsCanBeReappliedWithDedupColumns(t *testing.T) {
+	db := openSQLiteTestDB(t)
+	if _, err := ApplyMigrations(context.Background(), db); err != nil {
+		t.Fatalf("second ApplyMigrations: %v", err)
+	}
+}
+
 func TestExecMigrationSQLRollsBackOnError(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
