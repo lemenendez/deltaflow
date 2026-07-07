@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -83,8 +84,11 @@ func (b *DeltaStoreBase) PrepareDeltaForEnqueue(delta deltaflow.Delta) (deltaflo
 // DedupKey deterministically identifies one projection identity in a window.
 func DedupKey(window deltaflow.DedupWindow, projectionType deltaflow.ProjectionType, keyHash deltaflow.ProjectionKeyHash) deltaflow.DedupKey {
 	h := sha256.New()
-	for _, value := range []string{string(window), string(projectionType), string(keyHash)} {
-		_, _ = h.Write([]byte{byte(len(value) >> 24), byte(len(value) >> 16), byte(len(value) >> 8), byte(len(value))})
+	segments := [...]string{string(window), string(projectionType), string(keyHash)}
+	var length [4]byte
+	for _, value := range segments {
+		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+		_, _ = h.Write(length[:])
 		_, _ = h.Write([]byte(value))
 	}
 	return deltaflow.DedupKey(hex.EncodeToString(h.Sum(nil)))
