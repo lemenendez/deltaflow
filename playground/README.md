@@ -11,8 +11,6 @@ Each playground is intentionally isolated with its own `go.mod` so it can:
 Available playgrounds:
 
 - `01-in-memory`: latest-state customer cache sync simulation with in-memory source and target stores
-- `02-postgres`: contact delta flow using Postgres DeltaStore, DispatchStore, and JobStore with docker compose
-- `03-postgres-e-commerce`: concurrent product search workload with deterministic web/logistics writers, Elasticsearch, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation
-- `04-postgres-crm`: concurrent CRM read-model workload with simulated Redis views, Elasticsearch search fanout, two DeltaFlow workers, ghost deletion, retry, and dead-letter simulation
-- `05-sqlite`: SQLite durable-store example for the supported single-node / single-worker model with transactional source write + delta enqueue + worker apply cycle
-- `06-postgres-redis`: Postgres transactional source/outbox synchronized asynchronously into Redis, with application-owned keys, TTL refresh, retry, ghost deletion, and Valkey compatibility
+
+v0.11.2 removed the larger bundled playground applications from the core repository.
+They were archived for backup and are expected to move to external playground repositories/modules.

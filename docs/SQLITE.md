@@ -146,6 +146,5 @@ DeltaFlow does not provide cross-database atomicity.
 
 ## Playground
 
-See the SQLite playground for a minimal end-to-end example:
-
-- [playground/05-sqlite](../playground/05-sqlite/README.md)
+The v0.11.2 cleanup moved the SQLite durable playground out of the core repository.
+Use [playground/01-in-memory](../playground/01-in-memory/README.md) for a local in-repo sanity flow, and use the external SQLite playground/module once published.

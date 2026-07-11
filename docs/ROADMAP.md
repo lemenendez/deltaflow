@@ -123,6 +123,14 @@
 - [x] Add EnqueueBatchResult with batch counts
 - [x] Add tests for retrying the same batch safely
 
+## v0.11.2 - Playground cleanup
+- [x] Remove bundled playground apps from the core repo except the minimal in-memory playground
+- [x] Externalize the removed playgrounds into separate playground repositories or modules
+- [x] Keep the in-memory playground available as the lightweight local sanity check
+- [x] Document the transition so v0.12.0 can introduce a backfill-focused playground without competing with the old demos
+- [x] Plan doc: [PLAN_v0.11.2.md](PLAN_v0.11.2.md)
+- [x] Release notes draft: [RELEASE_NOTES_V0.11.2.md](RELEASE_NOTES_V0.11.2.md)
+
 ## v0.12.0 - Backfills
 - [ ] Document backfill as user-owned scan + EnqueueBatch
 - [ ] Enqueue deltas for an existing source universe

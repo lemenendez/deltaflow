@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/lemenendez/deltaflow/internal/config"
-	"github.com/lemenendez/deltaflow/pkg/examples/contactsruntime"
 	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -21,10 +20,6 @@ func Execute(ctx context.Context) error {
 
 func NewRootCommand() *cobra.Command {
 	registry := runtimepkg.NewRegistry()
-	if err := contactsruntime.Register(registry, contactsruntime.RegisterConfig{}); err != nil {
-		panic(err)
-	}
-
 	return NewRootCommandWithRegistry(registry)
 }
 

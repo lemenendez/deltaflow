@@ -2,10 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
+	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
 )
 
 func TestRootCommandSilencesCobraErrors(t *testing.T) {
@@ -191,7 +195,7 @@ pipelines:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := NewRootCommand()
+			cmd := NewRootCommandWithRegistry(testRuntimeRegistry())
 			var stdout, stderr bytes.Buffer
 			cmd.SetOut(&stdout)
 			cmd.SetErr(&stderr)
@@ -227,6 +231,21 @@ func TestRootCommandRegistersSubcommands(t *testing.T) {
 			t.Fatalf("Find(%q) error: %v", name, err)
 		}
 	}
+}
+
+func testRuntimeRegistry() *runtimepkg.Registry {
+	registry := runtimepkg.NewRegistry()
+	registry.RegisterProjector("contact-projector", func(context.Context, runtimepkg.PipelineSpec) (deltaflow.Projector, error) {
+		return deltaflow.ProjectorFunc(func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{}, nil
+		}), nil
+	})
+	registry.RegisterApplier("elasticsearch", func(context.Context, runtimepkg.PipelineSpec) (deltaflow.ProjectionApplier, error) {
+		return deltaflow.ProjectionApplierFunc(func(context.Context, deltaflow.ProjectionOperation) error {
+			return nil
+		}), nil
+	})
+	return registry
 }
 
 func writeCLIConfig(t *testing.T, body string) string {

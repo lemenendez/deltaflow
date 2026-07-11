@@ -89,4 +89,4 @@ TTL uses replace-and-refresh semantics:
 
 Redis is the primary documented target. Valkey runs the same connector integration contract. Other Redis-compatible servers remain best-effort.
 
-See `playground/06-postgres-redis` for transactional Postgres enqueue through asynchronous Redis cache synchronization and a Valkey-compatible execution path.
+The v0.11.2 cleanup moved the larger playground applications out of the core repository. Use the external Postgres-to-Redis playground/module once published.
