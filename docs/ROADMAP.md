@@ -125,7 +125,7 @@
 
 ## v0.11.2 - Playground cleanup
 - [x] Remove bundled playground apps from the core repo except the minimal in-memory playground
-- [x] Externalize the removed playgrounds into separate playground repositories or modules
+- [ ] Externalize the removed playgrounds into separate playground repositories or modules (pending publication)
 - [x] Keep the in-memory playground available as the lightweight local sanity check
 - [x] Reposition the stock CLI as an operator tool (`doctor` + `migrate`) rather than a generic worker host
 - [x] Keep `validate` as a compatibility alias for `doctor`
