@@ -28,8 +28,9 @@ Supported runtime shape:
 Guardrails:
 
 - `doctor` warns that SQLite does not support multiple competing worker processes
-- `run` rejects `workers.concurrency != 1`
-- `run` acquires a singleton DB-backed worker lock and fails fast if another worker is already active
+- the stock `cmd/deltaflow` binary does not expose `run`; here, `run` refers to an application-specific registry-enabled worker host binary
+- that custom `run` path rejects `workers.concurrency != 1`
+- that custom `run` path acquires a singleton DB-backed worker lock and fails fast if another worker is already active
 - the singleton lock is stored in `deltaflow_worker_locks` and is released on normal exit
 
 ## Recommended SQLite Settings
