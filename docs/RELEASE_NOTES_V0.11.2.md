@@ -9,7 +9,7 @@ DeltaFlow v0.11.2 is a cleanup release that removes the bundled playground appli
 - Keeps `playground/01-in-memory` as the lightweight bundled playground.
 - Removes the larger bundled playground applications from the core repository.
 - Removes the mistakenly shared `pkg/examples/contactsruntime` package from the core repository.
-- Archives the removed playgrounds and `pkg/examples/contactsruntime` in `backups/deltaflow-playgrounds-backup.zip` for reference and recovery.
+- Archives the removed playgrounds and `pkg/examples/contactsruntime` as a GitHub Release asset named `deltaflow-playgrounds-backup.zip` for reference and recovery.
 - Sets up a cleaner boundary for the v0.12.0 backfill work.
 
 ## What Stayed the Same
@@ -20,7 +20,7 @@ DeltaFlow v0.11.2 is a cleanup release that removes the bundled playground appli
 
 ## Upgrade Notes
 
-- If you relied on the removed playgrounds, use the backup zip or move to the future external playground repositories/modules.
+- If you relied on the removed playgrounds, download `deltaflow-playgrounds-backup.zip` from the v0.11.2 GitHub Release assets, or move to the future external playground repositories/modules.
 - If you relied on `pkg/examples/contactsruntime`, move to your own host/runtime wiring in application code.
 - Documentation should be updated to point to the new external locations once they are published.
 - v0.11.2 does not introduce new runtime APIs.
@@ -31,6 +31,6 @@ Before publishing the release, verify:
 
 - Root tests pass with `go test ./...`.
 - The in-memory playground still works as expected.
-- The removed playgrounds are archived in the backup zip.
-- `pkg/examples/contactsruntime` is archived in the backup zip.
+- The v0.11.2 release includes a `deltaflow-playgrounds-backup.zip` asset.
+- The release asset contains the removed playgrounds and `pkg/examples/contactsruntime`.
 - Remaining docs no longer present the removed playgrounds as bundled examples.
