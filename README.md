@@ -110,6 +110,7 @@ Choose SQLite when you want a local, embedded, or single-node deployment.
 Run the stock operator CLI:
 
 ```bash
+export DELTAFLOW_STORE_DSN='postgres://deltaflow:deltaflow@localhost:5432/deltaflow?sslmode=disable'
 go run ./cmd/deltaflow doctor --config ./cmd/deltaflow/deltaflow.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
 ```
