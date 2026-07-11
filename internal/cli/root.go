@@ -28,7 +28,7 @@ func NewRootCommandWithRegistry(registry *runtimepkg.Registry) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           "deltaflow",
-		Short:         "DeltaFlow command line tools",
+		Short:         "DeltaFlow doctor and migration tools",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

@@ -7,6 +7,7 @@ Goal: remove the bundled playground applications from the core repository while 
 - v0.11.2 is a repository-cleanup milestone, not a feature milestone.
 - The core repo should keep the smallest useful playground surface needed for fast local verification.
 - The removed playgrounds should live outside the core repository as separate playground repositories or modules.
+- The stock CLI should be positioned as an operator tool, not a generic worker host.
 - Backfill work in v0.12.0 should start from the cleaned-up boundary, not from the old bundled demos.
 
 ## Scope
@@ -15,6 +16,8 @@ Goal: remove the bundled playground applications from the core repository while 
 - Keep `playground/01-in-memory` as the lightweight local playground.
 - Remove the mistakenly shared `pkg/examples/contactsruntime` package from the core repository.
 - Externalize the removed playgrounds into separate repositories or modules.
+- Reposition the stock CLI around `doctor` and `migrate` only.
+- Preserve `validate` as a compatibility alias for `doctor`.
 - Preserve the documentation trail so users can find the new external playground locations later.
 
 ## Implementation Steps
@@ -27,7 +30,9 @@ Goal: remove the bundled playground applications from the core repository while 
 6. Add `pkg/examples/contactsruntime` to the backup zip and remove it from the repository.
 7. Update the playground documentation and catalog to point to the external locations.
 8. Keep the in-memory playground documentation in place so local verification remains available.
-9. Verify the core repository still builds and tests cleanly after the cleanup.
+9. Rename the public stock CLI check command to `doctor`, while keeping `validate` as an alias.
+10. Update CLI help, docs, roadmap, and release notes to describe the stock CLI as `doctor` + `migrate` only.
+11. Verify the core repository still builds and tests cleanly after the cleanup.
 
 ## Testing Plan
 
@@ -37,12 +42,14 @@ Goal: remove the bundled playground applications from the core repository while 
 - Confirm the removed playground content is present in the backup archive.
 - Confirm `pkg/examples/contactsruntime` is present in the backup archive and removed from the repository.
 - Review documentation links for any references that now need to point to external repositories.
+- Confirm `doctor` is the documented stock CLI command and `validate` still works as an alias.
 
 ## Acceptance Criteria
 
 - Only the in-memory playground remains bundled in the core repository.
 - The removed playgrounds are safely archived in the backup zip.
 - `pkg/examples/contactsruntime` is removed and archived in the backup zip.
+- The stock CLI is clearly positioned as an operator tool, not a generic worker host.
 - The repository docs clearly reflect the new boundary.
 - Root tests and integration tests remain green after the cleanup.
 

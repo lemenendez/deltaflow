@@ -107,19 +107,29 @@ Choose SQLite when you want a local, embedded, or single-node deployment.
 
 ## Quick CLI Start
 
-Validate config and apply migrations:
+Run the stock operator CLI:
 
 ```bash
-go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
+go run ./cmd/deltaflow doctor --config ./cmd/deltaflow/deltaflow.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
 ```
 
-The stock `cmd/deltaflow` binary does not include runtime projector/applier registrations, so it intentionally does not expose `run`. To execute worker cycles, build an application-specific CLI using `pkg/runtime` (register projector/applier factories in a `runtime.Registry`, call `runtime.BuildFromConfig(...)`, then `runtime.RunOnce(...)`).
+The stock `cmd/deltaflow` binary is an operator tool: it supports `doctor` and `migrate`, but intentionally does not expose `run`. This is not the worker run command.
+
+Worker execution must be implemented by your application.
+
+Playground references:
+
+- [playground/01-in-memory/README.md](playground/01-in-memory/README.md): smallest in-repo projector/applier flow
+- [playground/README.md](playground/README.md): current playground catalog and transition notes
+- [docs/RELEASE_NOTES_V0.11.2.md](docs/RELEASE_NOTES_V0.11.2.md): archived playground backup location and cleanup scope
+
+The legacy `validate` subcommand name remains available as an alias for `doctor`.
 
 SQLite sample config:
 
 ```bash
-go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.sqlite.yaml
+go run ./cmd/deltaflow doctor --config ./cmd/deltaflow/deltaflow.sqlite.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.sqlite.yaml
 ```
 

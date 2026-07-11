@@ -3,7 +3,7 @@ store:
   dsn: ${DELTAFLOW_STORE_DSN}
 
 # Runtime registrations are application-owned.
-# The stock cmd/deltaflow binary supports validate/migrate only;
+# The stock cmd/deltaflow binary supports doctor/migrate only;
 # run is available from registry-enabled custom binaries.
 
 workers:
