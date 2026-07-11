@@ -130,9 +130,9 @@ Config loading expands `${VAR}` and `$VAR` before YAML parsing.
 Standalone examples live under [playground](playground).
 
 - [playground/01-in-memory](playground/01-in-memory): minimal in-memory latest-state flow using the public API
-- Full playground applications were removed from the core repo in v0.11.2 and prepared for externalization.
+- Full playground applications were removed from the core repo in v0.11.2 and prepared for externalization. See [playground/README.md](playground/README.md) for transition notes.
 
-If you are new to the project, start with 01, then 02 or 05 depending on whether you want the Postgres or SQLite path.
+If you are new to the project, start with 01. For durable Postgres/SQLite examples, use the external playground modules referenced in the playground guide.
 
 ## Developer Notes
 
