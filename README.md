@@ -114,7 +114,7 @@ go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
 ```
 
-The stock `cmd/deltaflow` binary does not include runtime projector/applier registrations, so it intentionally does not expose `run`. To execute worker cycles, build an application-specific CLI that calls `NewRootCommandWithRegistry(...)` and registers every configured projector/applier.
+The stock `cmd/deltaflow` binary does not include runtime projector/applier registrations, so it intentionally does not expose `run`. To execute worker cycles, build an application-specific CLI using `pkg/runtime` (register projector/applier factories in a `runtime.Registry`, call `runtime.BuildFromConfig(...)`, then `runtime.RunOnce(...)`).
 
 SQLite sample config:
 
