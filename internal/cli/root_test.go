@@ -226,10 +226,14 @@ pipelines:
 func TestRootCommandRegistersSubcommands(t *testing.T) {
 	cmd := NewRootCommand()
 
-	for _, name := range []string{"validate", "migrate", "run"} {
+	for _, name := range []string{"validate", "migrate"} {
 		if _, _, err := cmd.Find([]string{name}); err != nil {
 			t.Fatalf("Find(%q) error: %v", name, err)
 		}
+	}
+
+	if _, _, err := cmd.Find([]string{"run"}); err == nil {
+		t.Fatal("Find(\"run\") error = nil, want unknown command")
 	}
 }
 

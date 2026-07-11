@@ -107,20 +107,20 @@ Choose SQLite when you want a local, embedded, or single-node deployment.
 
 ## Quick CLI Start
 
-Validate config, apply migrations, and run the worker:
+Validate config and apply migrations:
 
 ```bash
 go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
-go run ./cmd/deltaflow run --config ./cmd/deltaflow/deltaflow.yaml
 ```
+
+The stock `cmd/deltaflow` binary does not include runtime projector/applier registrations, so it intentionally does not expose `run`. To execute worker cycles, build an application-specific CLI that calls `NewRootCommandWithRegistry(...)` and registers every configured projector/applier.
 
 SQLite sample config:
 
 ```bash
 go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.sqlite.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.sqlite.yaml
-go run ./cmd/deltaflow run --config ./cmd/deltaflow/deltaflow.sqlite.yaml
 ```
 
 Config loading expands `${VAR}` and `$VAR` before YAML parsing.
@@ -132,7 +132,7 @@ Standalone examples live under [playground](playground).
 - [playground/01-in-memory](playground/01-in-memory): minimal in-memory latest-state flow using the public API
 - Full playground applications were removed from the core repo in v0.11.2 and prepared for externalization. See [playground/README.md](playground/README.md) for transition notes.
 
-If you are new to the project, start with 01. For durable Postgres/SQLite examples, use the external playground modules referenced in the playground guide.
+If you are new to the project, start with 01.
 
 ## Developer Notes
 

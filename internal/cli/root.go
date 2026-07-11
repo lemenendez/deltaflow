@@ -19,8 +19,7 @@ func Execute(ctx context.Context) error {
 }
 
 func NewRootCommand() *cobra.Command {
-	registry := runtimepkg.NewRegistry()
-	return NewRootCommandWithRegistry(registry)
+	return NewRootCommandWithRegistry(nil)
 }
 
 func NewRootCommandWithRegistry(registry *runtimepkg.Registry) *cobra.Command {
@@ -39,7 +38,9 @@ func NewRootCommandWithRegistry(registry *runtimepkg.Registry) *cobra.Command {
 
 	cmd.AddCommand(newValidateCommand(opts))
 	cmd.AddCommand(newMigrateCommand(opts))
-	cmd.AddCommand(newRunCommand(opts))
+	if opts.runtimeRegistry != nil {
+		cmd.AddCommand(newRunCommand(opts))
+	}
 
 	return cmd
 }

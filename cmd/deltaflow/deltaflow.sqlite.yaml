@@ -2,6 +2,10 @@ store:
   type: sqlite
   dsn: file:deltaflow.sqlite
 
+# Runtime registrations are application-owned.
+# The stock cmd/deltaflow binary supports validate/migrate only;
+# run is available from registry-enabled custom binaries.
+
 workers:
   concurrency: 1
   lease_ttl: 30s
