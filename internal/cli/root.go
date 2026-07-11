@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/lemenendez/deltaflow/internal/config"
-	"github.com/lemenendez/deltaflow/pkg/examples/contactsruntime"
 	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -20,12 +19,7 @@ func Execute(ctx context.Context) error {
 }
 
 func NewRootCommand() *cobra.Command {
-	registry := runtimepkg.NewRegistry()
-	if err := contactsruntime.Register(registry, contactsruntime.RegisterConfig{}); err != nil {
-		panic(err)
-	}
-
-	return NewRootCommandWithRegistry(registry)
+	return NewRootCommandWithRegistry(nil)
 }
 
 func NewRootCommandWithRegistry(registry *runtimepkg.Registry) *cobra.Command {
@@ -34,7 +28,7 @@ func NewRootCommandWithRegistry(registry *runtimepkg.Registry) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           "deltaflow",
-		Short:         "DeltaFlow command line tools",
+		Short:         "DeltaFlow doctor and migration tools",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -44,7 +38,9 @@ func NewRootCommandWithRegistry(registry *runtimepkg.Registry) *cobra.Command {
 
 	cmd.AddCommand(newValidateCommand(opts))
 	cmd.AddCommand(newMigrateCommand(opts))
-	cmd.AddCommand(newRunCommand(opts))
+	if opts.runtimeRegistry != nil {
+		cmd.AddCommand(newRunCommand(opts))
+	}
 
 	return cmd
 }

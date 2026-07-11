@@ -27,9 +27,10 @@ Supported runtime shape:
 
 Guardrails:
 
-- `validate` warns that SQLite does not support multiple competing worker processes
-- `run` rejects `workers.concurrency != 1`
-- `run` acquires a singleton DB-backed worker lock and fails fast if another worker is already active
+- `doctor` warns that SQLite does not support multiple competing worker processes
+- the stock `cmd/deltaflow` binary does not expose `run`; here, `run` refers to an application-specific registry-enabled worker host binary
+- that custom `run` path rejects `workers.concurrency != 1`
+- that custom `run` path acquires a singleton DB-backed worker lock and fails fast if another worker is already active
 - the singleton lock is stored in `deltaflow_worker_locks` and is released on normal exit
 
 ## Recommended SQLite Settings
@@ -146,6 +147,5 @@ DeltaFlow does not provide cross-database atomicity.
 
 ## Playground
 
-See the SQLite playground for a minimal end-to-end example:
-
-- [playground/05-sqlite](../playground/05-sqlite/README.md)
+The v0.11.2 cleanup moved the SQLite durable playground out of the core repository.
+Use [playground/01-in-memory](../playground/01-in-memory/README.md) for a local in-repo sanity flow, and use the external SQLite playground/module once published.

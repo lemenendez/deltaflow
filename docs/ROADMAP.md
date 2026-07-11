@@ -123,6 +123,17 @@
 - [x] Add EnqueueBatchResult with batch counts
 - [x] Add tests for retrying the same batch safely
 
+## v0.11.2 - Playground cleanup
+- [x] Remove bundled playground apps from the core repo except the minimal in-memory playground
+- [ ] Externalize the removed playgrounds into separate playground repositories or modules (pending publication)
+- [x] Keep the in-memory playground available as the lightweight local sanity check
+- [x] Reposition the stock CLI as an operator tool (`doctor` + `migrate`) rather than a generic worker host
+- [x] Keep `validate` as a compatibility alias for `doctor`
+- [x] Remove stock `run` from the generic CLI surface and document application-owned worker hosts
+- [x] Document the transition so v0.12.0 can introduce a backfill-focused playground without competing with the old demos
+- [x] Plan doc: [PLAN_v0.11.2.md](PLAN_v0.11.2.md)
+- [x] Release notes draft: [RELEASE_NOTES_V0.11.2.md](RELEASE_NOTES_V0.11.2.md)
+
 ## v0.12.0 - Backfills
 - [ ] Document backfill as user-owned scan + EnqueueBatch
 - [ ] Enqueue deltas for an existing source universe
@@ -278,7 +289,8 @@
 - [ ] Stable SQLite single-node durable store
 - [ ] Stable Elasticsearch applier
 - [ ] Stable Redis applier
-- [ ] Stable CLI basics: validate, migrate, run
+- [ ] Stable operator CLI basics: doctor, migrate
+- [ ] Document application-owned worker host composition
 - [ ] Documented transactional enqueue patterns
 - [ ] Documented worker behavior: leases, retries, dead jobs, ghost handling, backfills
 - [ ] Documented adoption ladder: in-memory -> SQLite single-node -> Postgres/SQL Server production

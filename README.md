@@ -52,15 +52,13 @@ Pick the path that matches what you want to learn next.
 ### I want to run something end to end
 
 - Start with the smallest example: [playground/01-in-memory/README.md](playground/01-in-memory/README.md).
-- Try a durable Postgres flow: [playground/02-postgres/README.md](playground/02-postgres/README.md).
-- Try the SQLite single-node flow: [playground/05-sqlite/README.md](playground/05-sqlite/README.md).
-- Try a Postgres-to-Redis cache flow: [playground/06-postgres-redis/README.md](playground/06-postgres-redis/README.md).
+- Additional playgrounds were moved out of this repository in v0.11.2. See [playground/README.md](playground/README.md) for the current in-repo scope and transition notes.
 
 ### I want to wire DeltaFlow into an application
 
 - Review the CLI config examples in [cmd/deltaflow/deltaflow.yaml](cmd/deltaflow/deltaflow.yaml) and [cmd/deltaflow/deltaflow.sqlite.yaml](cmd/deltaflow/deltaflow.sqlite.yaml).
 - Read the runtime registry code in [pkg/runtime/registry.go](pkg/runtime/registry.go) and [pkg/runtime/runner.go](pkg/runtime/runner.go).
-- Look at the host/runtime example in [pkg/examples/contactsruntime](pkg/examples/contactsruntime).
+- See the runtime package examples in [pkg/runtime](pkg/runtime).
 
 ### I want to know what comes next
 
@@ -95,7 +93,7 @@ Choose Postgres when you want the main durable multi-worker path.
 - durable SQL-backed Delta and SyncJob stores
 - better fit for concurrent workers
 - recommended when you need production-style worker coordination
-- examples: [playground/02-postgres](playground/02-postgres), [playground/03-postgres-e-commerce](playground/03-postgres-e-commerce), [playground/04-postgres-crm](playground/04-postgres-crm)
+- v0.11.2 moved full Postgres playground applications out of this repository.
 
 ### SQLite
 
@@ -105,24 +103,35 @@ Choose SQLite when you want a local, embedded, or single-node deployment.
 - intended for local development, demos, embedded apps, and low-scale single-node deployments
 - not intended for competing worker processes or distributed worker fleets
 - docs: [docs/SQLITE.md](docs/SQLITE.md)
-- example: [playground/05-sqlite](playground/05-sqlite)
+- v0.11.2 moved the SQLite durable playground out of this repository.
 
 ## Quick CLI Start
 
-Validate config, apply migrations, and run the worker:
+Run the stock operator CLI:
 
 ```bash
-go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.yaml
+export DELTAFLOW_STORE_DSN='postgres://deltaflow:deltaflow@localhost:5432/deltaflow?sslmode=disable'
+go run ./cmd/deltaflow doctor --config ./cmd/deltaflow/deltaflow.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.yaml
-go run ./cmd/deltaflow run --config ./cmd/deltaflow/deltaflow.yaml
 ```
+
+The stock `cmd/deltaflow` binary is an operator tool: it supports `doctor` and `migrate`, but intentionally does not expose `run`. This is not the worker run command.
+
+Worker execution must be implemented by your application.
+
+Playground references:
+
+- [playground/01-in-memory/README.md](playground/01-in-memory/README.md): smallest in-repo projector/applier flow
+- [playground/README.md](playground/README.md): current playground catalog and transition notes
+- [docs/RELEASE_NOTES_V0.11.2.md](docs/RELEASE_NOTES_V0.11.2.md): archived playground backup location and cleanup scope
+
+The legacy `validate` subcommand name remains available as an alias for `doctor`.
 
 SQLite sample config:
 
 ```bash
-go run ./cmd/deltaflow validate --config ./cmd/deltaflow/deltaflow.sqlite.yaml
+go run ./cmd/deltaflow doctor --config ./cmd/deltaflow/deltaflow.sqlite.yaml
 go run ./cmd/deltaflow migrate --config ./cmd/deltaflow/deltaflow.sqlite.yaml
-go run ./cmd/deltaflow run --config ./cmd/deltaflow/deltaflow.sqlite.yaml
 ```
 
 Config loading expands `${VAR}` and `$VAR` before YAML parsing.
@@ -132,13 +141,9 @@ Config loading expands `${VAR}` and `$VAR` before YAML parsing.
 Standalone examples live under [playground](playground).
 
 - [playground/01-in-memory](playground/01-in-memory): minimal in-memory latest-state flow using the public API
-- [playground/02-postgres](playground/02-postgres): durable Postgres-backed contact sync
-- [playground/03-postgres-e-commerce](playground/03-postgres-e-commerce): concurrent product-search workload with Elasticsearch, retries, and dead-letter simulation
-- [playground/04-postgres-crm](playground/04-postgres-crm): concurrent CRM read-model workload with simulated views and Elasticsearch fanout
-- [playground/05-sqlite](playground/05-sqlite): SQLite durable-store example for the supported single-node / single-worker model
-- [playground/06-postgres-redis](playground/06-postgres-redis): transactional Postgres source/outbox synchronized into Redis with TTL, retry, ghost deletion, and Valkey compatibility
+- Full playground applications were removed from the core repo in v0.11.2 and prepared for externalization. See [playground/README.md](playground/README.md) for transition notes.
 
-If you are new to the project, start with 01, then 02 or 05 depending on whether you want the Postgres or SQLite path.
+If you are new to the project, start with 01.
 
 ## Developer Notes
 

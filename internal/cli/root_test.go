@@ -2,17 +2,21 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	deltaflow "github.com/lemenendez/deltaflow/pkg/deltaflow"
+	runtimepkg "github.com/lemenendez/deltaflow/pkg/runtime"
 )
 
 func TestRootCommandSilencesCobraErrors(t *testing.T) {
 	cmd := NewRootCommand()
 	var stderr bytes.Buffer
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"validate", "--config", "does-not-exist.yaml"})
+	cmd.SetArgs([]string{"doctor", "--config", "does-not-exist.yaml"})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -26,7 +30,7 @@ func TestRootCommandSilencesCobraErrors(t *testing.T) {
 	}
 }
 
-func TestRootCommandValidateFlagWiring(t *testing.T) {
+func TestRootCommandDoctorFlagWiring(t *testing.T) {
 	validConfig := writeCLIConfig(t, `
 store:
   type: postgres
@@ -149,22 +153,27 @@ pipelines:
 	}{
 		{
 			name:       "config flag before subcommand",
-			args:       []string{"--config", validConfig, "validate"},
-			wantOutput: "config OK\n",
+			args:       []string{"--config", validConfig, "doctor"},
+			wantOutput: "config OK\nnote: this stock CLI does not run workers; worker execution must be implemented by your application\nnote: see playground/01-in-memory and playground/README.md for current examples; larger archived playgrounds are described in the v0.11.2 release notes\n",
 		},
 		{
-			name:       "config shorthand on subcommand",
+			name:       "config shorthand on doctor subcommand",
+			args:       []string{"doctor", "-c", validConfig},
+			wantOutput: "config OK\nnote: this stock CLI does not run workers; worker execution must be implemented by your application\nnote: see playground/01-in-memory and playground/README.md for current examples; larger archived playgrounds are described in the v0.11.2 release notes\n",
+		},
+		{
+			name:       "validate alias remains supported",
 			args:       []string{"validate", "-c", validConfig},
-			wantOutput: "config OK\n",
+			wantOutput: "config OK\nnote: this stock CLI does not run workers; worker execution must be implemented by your application\nnote: see playground/01-in-memory and playground/README.md for current examples; larger archived playgrounds are described in the v0.11.2 release notes\n",
 		},
 		{
 			name:       "store dsn override satisfies required dsn",
-			args:       []string{"validate", "--config", missingDSNConfig, "--store-dsn", "postgres://override"},
-			wantOutput: "config OK\n",
+			args:       []string{"doctor", "--config", missingDSNConfig, "--store-dsn", "postgres://override"},
+			wantOutput: "config OK\nnote: this stock CLI does not run workers; worker execution must be implemented by your application\nnote: see playground/01-in-memory and playground/README.md for current examples; larger archived playgrounds are described in the v0.11.2 release notes\n",
 		},
 		{
 			name:        "missing config returns load error without cobra stderr",
-			args:        []string{"validate", "--config", filepath.Join(t.TempDir(), "missing.yaml")},
+			args:        []string{"doctor", "--config", filepath.Join(t.TempDir(), "missing.yaml")},
 			wantErrText: "missing.yaml",
 		},
 		{
@@ -183,15 +192,15 @@ pipelines:
 			wantErrText: "store.type must be postgres or sqlite",
 		},
 		{
-			name:       "validate sqlite emits single-worker notes",
-			args:       []string{"validate", "--config", sqliteConfig},
-			wantOutput: "config OK\nnote: sqlite supports only workers.concurrency=1\nnote: sqlite does not support multiple competing worker processes\n",
+			name:       "doctor sqlite emits stock-cli and single-worker notes",
+			args:       []string{"doctor", "--config", sqliteConfig},
+			wantOutput: "config OK\nnote: this stock CLI does not run workers; worker execution must be implemented by your application\nnote: see playground/01-in-memory and playground/README.md for current examples; larger archived playgrounds are described in the v0.11.2 release notes\nnote: sqlite supports only workers.concurrency=1\nnote: sqlite does not support multiple competing worker processes\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := NewRootCommand()
+			cmd := NewRootCommandWithRegistry(testRuntimeRegistry())
 			var stdout, stderr bytes.Buffer
 			cmd.SetOut(&stdout)
 			cmd.SetErr(&stderr)
@@ -222,11 +231,34 @@ pipelines:
 func TestRootCommandRegistersSubcommands(t *testing.T) {
 	cmd := NewRootCommand()
 
-	for _, name := range []string{"validate", "migrate", "run"} {
+	for _, name := range []string{"doctor", "migrate"} {
 		if _, _, err := cmd.Find([]string{name}); err != nil {
 			t.Fatalf("Find(%q) error: %v", name, err)
 		}
 	}
+
+	if _, _, err := cmd.Find([]string{"validate"}); err != nil {
+		t.Fatalf("Find(%q) error: %v", "validate", err)
+	}
+
+	if _, _, err := cmd.Find([]string{"run"}); err == nil {
+		t.Fatal("Find(\"run\") error = nil, want unknown command")
+	}
+}
+
+func testRuntimeRegistry() *runtimepkg.Registry {
+	registry := runtimepkg.NewRegistry()
+	registry.RegisterProjector("contact-projector", func(context.Context, runtimepkg.PipelineSpec) (deltaflow.Projector, error) {
+		return deltaflow.ProjectorFunc(func(context.Context, deltaflow.ProjectionIdentity) (deltaflow.Projection, error) {
+			return deltaflow.Projection{}, nil
+		}), nil
+	})
+	registry.RegisterApplier("elasticsearch", func(context.Context, runtimepkg.PipelineSpec) (deltaflow.ProjectionApplier, error) {
+		return deltaflow.ProjectionApplierFunc(func(context.Context, deltaflow.ProjectionOperation) error {
+			return nil
+		}), nil
+	})
+	return registry
 }
 
 func writeCLIConfig(t *testing.T, body string) string {
