@@ -83,13 +83,16 @@ Goal: turn the existing backfill design into a practical, adoption-ready workflo
 - The guide clearly states that backfill is user-owned source enumeration plus DeltaFlow-owned enqueue guardrails.
 - The repo exposes a helper path for constructing backfill deltas correctly.
 - At least one restart-safe scan example and one checkpoint strategy example are documented.
+- Dry-run behavior is documented as application-owned preflight validation rather than a separate DeltaFlow enqueue API.
+- Large-backfill tuning covers batch size, pacing, worker count, destination throughput, and retention/pruning.
+- Current timing-mode compatibility is documented for `latest_state`, with future timing modes left roadmap-scoped.
 - Postgres and SQLite backfill constraints are explicit and consistent with current runtime guarantees.
 - The core repo documents the expected shape of the external backfill playground and does not reintroduce bundled playground applications.
 - The CRM playground demonstrates source seeding, backfill enqueue, worker drain, and destination catch-up before v0.12.0 is closed.
 
-## Open Questions
+## Resolved Decisions
 
-- Should `NewBackfillDelta` set `Origin` automatically, or should callers still set origin explicitly for clarity?
-- Should dry-run stay documentation-only, or do we want a small helper surface that validates windows without enqueue?
-- Do we need a queue-depth helper in v0.12.0, or is guidance around pacing and existing store metrics sufficient?
-- Is an Elasticsearch population example enough for the first cut, or do we also need a Redis cache rehydration example?
+- `NewBackfillDelta` keeps `OriginOperationType` caller-provided so source-side business semantics remain explicit.
+- Dry-run stays documentation-only in v0.12.0: callers validate source scan order and delta construction before calling `EnqueueBatch`.
+- Queue-depth helpers are deferred; v0.12.0 documents pacing and existing store/runtime observations instead of adding a new public API.
+- Elasticsearch population guidance is enough for the first backfill release; Redis cache rehydration can be added later if needed.

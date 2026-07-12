@@ -138,7 +138,7 @@
 ## v0.12.0 - Backfills
 - [x] Document backfill as user-owned scan + EnqueueBatch
 - [x] Publish dedicated backfill adoption guide: [BACKFILL.md](BACKFILL.md)
-- [ ] Enqueue deltas for an existing source universe
+- [x] Enqueue deltas for an existing source universe
 - [x] Provide NewBackfillDelta helper
 - [x] Provide SQL seek-pagination example
 - [x] Evaluate bulk inserts as an optional EnqueueBatch performance optimization
@@ -147,16 +147,16 @@
 - [x] Support restart-safe backfills through application-provided stable ordering and optional checkpoint token
 - [x] Support multiple workers for Postgres-backed backfills using existing lease/batch semantics
 - [x] Keep SQLite backfills single-worker only
-- [ ] Support dry-run mode where practical
-- [ ] Provide Elasticsearch population example
-- [ ] Provide large-backfill guidance:
+- [x] Support dry-run mode where practical as application-owned preflight guidance
+- [x] Provide Elasticsearch population example
+- [x] Provide large-backfill guidance:
   - batch size
   - queue pacing
   - worker count
   - destination bulk APIs
   - retention/pruning
 - [x] Document that DeltaFlow does not own source enumeration state unless the application provides a checkpoint strategy
-- [ ] Define compatibility of each timing mode with backfills
+- [x] Define compatibility of each timing mode with backfills
 - [x] Define external backfill playground repository: [lemenendez/deltaflow-playground-crm](https://github.com/lemenendez/deltaflow-playground-crm/) should seed source records -> run backfill -> observe destination catch up
 - [ ] Finish CRM playground backfill scenario before closing v0.12.0
 - [ ] Include large-source external playground scenario with fixed seed/count in the CRM playground

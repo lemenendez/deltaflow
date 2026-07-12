@@ -304,6 +304,7 @@ Practical dry-run behaviors:
 - estimate queue growth before enabling enqueue
 
 DeltaFlow does not currently provide a separate dry-run enqueue API.
+The practical v0.12.0 support is guidance: build the same source scan and delta construction path, then stop before `EnqueueBatch`.
 
 ## Throughput Guidance
 
@@ -370,11 +371,12 @@ Typical shape:
 4. Normal workers drain the queue and write projections to Elasticsearch.
 5. Application tracks the source checkpoint until the initial population completes.
 
+The producer should not call Elasticsearch directly during the backfill.
+It should enqueue the same projection identities the normal sync uses and let the existing worker/projector/applier path populate the index.
+
 ## Future Additions
 
 This guide is expected to grow with:
 
-- concrete `NewBackfillDelta` examples
-- link to the external backfill playground repository
 - store-specific tuning notes
-- timing-mode-specific backfill constraints
+- connector-specific destination bulk guidance
