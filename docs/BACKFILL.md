@@ -342,6 +342,7 @@ Backfill guidance must stay aligned with the active projection timing mode.
 ## External Playground Contract
 
 The backfill playground should live in a separate repository, not in the core DeltaFlow repo.
+The first target repository is [lemenendez/deltaflow-playground-crm](https://github.com/lemenendez/deltaflow-playground-crm/).
 
 Minimum contract for that external playground:
 
@@ -349,12 +350,12 @@ Minimum contract for that external playground:
 - run a backfill producer that uses stable ordering and caller-owned checkpoints
 - enqueue through `NewBackfillDelta` and `EnqueueBatch`
 - drain through normal worker behavior rather than a special backfill runtime
-- show destination catch-up for at least one practical target such as Elasticsearch
+- show destination catch-up for at least one practical target such as Elasticsearch or a CRM read model
 - include a larger source-count scenario for throughput and pacing experiments
 - pin DeltaFlow and connector versions explicitly
 - document which pieces are example-only application code versus reusable DeltaFlow APIs
 
-The core repository should only document this contract and link to the external repository once it exists.
+The core repository should only document this contract and link to the external repository.
 It should not reintroduce bundled playground applications for backfill.
 
 ## Destination Population Example

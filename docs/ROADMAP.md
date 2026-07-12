@@ -125,7 +125,8 @@
 
 ## v0.11.2 - Playground cleanup
 - [x] Remove bundled playground apps from the core repo except the minimal in-memory playground
-- [ ] Externalize the removed playgrounds into separate playground repositories or modules (pending publication)
+- [x] Externalize the removed CRM playground into its own repository: [lemenendez/deltaflow-playground-crm](https://github.com/lemenendez/deltaflow-playground-crm/)
+- [ ] Externalize the remaining removed playgrounds into separate playground repositories or modules (pending publication)
 - [x] Keep the in-memory playground available as the lightweight local sanity check
 - [x] Reposition the stock CLI as an operator tool (`doctor` + `migrate`) rather than a generic worker host
 - [x] Keep `validate` as a compatibility alias for `doctor`
@@ -156,8 +157,9 @@
   - retention/pruning
 - [x] Document that DeltaFlow does not own source enumeration state unless the application provides a checkpoint strategy
 - [ ] Define compatibility of each timing mode with backfills
-- [ ] Define external backfill playground repository: seed source records -> run backfill -> observe destination catch up
-- [ ] Include large-source external playground scenario with fixed seed/count
+- [x] Define external backfill playground repository: [lemenendez/deltaflow-playground-crm](https://github.com/lemenendez/deltaflow-playground-crm/) should seed source records -> run backfill -> observe destination catch up
+- [ ] Finish CRM playground backfill scenario before closing v0.12.0
+- [ ] Include large-source external playground scenario with fixed seed/count in the CRM playground
 - [x] Plan doc: [PLAN_v0.12.0.md](PLAN_v0.12.0.md)
 - [x] Release notes draft: [RELEASE_NOTES_V0.12.0.md](RELEASE_NOTES_V0.12.0.md)
 

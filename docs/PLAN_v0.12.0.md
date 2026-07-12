@@ -21,7 +21,7 @@ Goal: turn the existing backfill design into a practical, adoption-ready workflo
 - Document restart-safe backfills using stable ordering and caller-owned progress.
 - Define timing-mode compatibility notes for backfill usage.
 - Provide large-backfill guidance covering batch size, pacing, worker count, destination throughput, and retention/pruning.
-- Define the contract for an external backfill-focused playground repository that demonstrates source seeding, enqueue, and destination catch-up.
+- Define the contract for the external CRM playground repository that demonstrates source seeding, enqueue, and destination catch-up.
 - Evaluate whether durable stores should expose optional bulk insert optimizations behind the existing batch API.
 
 ## Non-Goals
@@ -55,8 +55,8 @@ Goal: turn the existing backfill design into a practical, adoption-ready workflo
 1. Document how backfills behave under current timing modes and note open questions for future timing-mode expansion.
 2. Validate that Postgres-backed backfills can use existing worker lease and batch semantics at normal runtime scale.
 3. Keep SQLite examples limited to single-worker operation.
-4. Define an external backfill playground repository with a fixed-seed scenario and a larger source-count variant.
-5. Include one destination-oriented example, preferably Elasticsearch population, because that is a common adoption path.
+4. Use [lemenendez/deltaflow-playground-crm](https://github.com/lemenendez/deltaflow-playground-crm/) as the external backfill playground repository, with a fixed-seed scenario and a larger source-count variant.
+5. Include one destination-oriented example, preferably Elasticsearch population or a CRM read model, because that is a common adoption path.
 
 ## Proposed Implementation Order
 
@@ -65,7 +65,8 @@ Goal: turn the existing backfill design into a practical, adoption-ready workflo
 3. Add source-scan examples and checkpoint examples.
 4. Add or update durable store tests if `EnqueueBatch` performance-related behavior changes.
 5. Write the external playground repository contract and link target.
-6. Refresh README, DESIGN references, roadmap links, and release notes.
+6. Finish the CRM playground backfill scenario before closing v0.12.0.
+7. Refresh README, DESIGN references, roadmap links, and release notes.
 
 ## Testing Plan
 
@@ -84,6 +85,7 @@ Goal: turn the existing backfill design into a practical, adoption-ready workflo
 - At least one restart-safe scan example and one checkpoint strategy example are documented.
 - Postgres and SQLite backfill constraints are explicit and consistent with current runtime guarantees.
 - The core repo documents the expected shape of the external backfill playground and does not reintroduce bundled playground applications.
+- The CRM playground demonstrates source seeding, backfill enqueue, worker drain, and destination catch-up before v0.12.0 is closed.
 
 ## Open Questions
 

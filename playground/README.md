@@ -14,3 +14,7 @@ Available playgrounds:
 
 v0.11.2 removed the larger bundled playground applications from the core repository.
 They were archived for backup and are expected to move to external playground repositories/modules.
+
+External playgrounds:
+
+- [deltaflow-playground-crm](https://github.com/lemenendez/deltaflow-playground-crm/): CRM-oriented playground that is expected to host the v0.12.0 backfill scenario.

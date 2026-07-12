@@ -12,7 +12,7 @@ DeltaFlow v0.12.0 is the first backfill-focused release. It turns the earlier ba
 - Adds concrete examples for SQL seek pagination, high-watermark scans, and caller-owned cursor recovery.
 - Improves Postgres `EnqueueBatch` throughput by using a multi-row insert path while preserving the existing batch API and duplicate-suppression semantics.
 - Keeps the core repo focused on reusable APIs and documentation instead of reintroducing bundled backfill playground applications.
-- Defines the expected contract for a future external backfill playground repository.
+- Defines [lemenendez/deltaflow-playground-crm](https://github.com/lemenendez/deltaflow-playground-crm/) as the external playground home for the executable CRM backfill scenario.
 
 ## What Stayed the Same
 
@@ -27,7 +27,7 @@ DeltaFlow v0.12.0 is the first backfill-focused release. It turns the earlier ba
 - Use `NewBackfillDelta` plus `EnqueueBatch` for restart-safe bulk enqueue instead of building a separate Delta insertion path.
 - When retrying a source slice after a crash or ambiguous failure, reuse the same dedup window for that logical lane.
 - For Postgres-backed large backfills, prefer measured batch-size and pacing changes over one-off manual scripts that bypass `EnqueueBatch`.
-- Do not expect a bundled backfill playground in the core repository; example applications for backfill should live in a separate repository.
+- Do not expect a bundled backfill playground in the core repository; the CRM backfill example lives in the external playground repository.
 
 ## Verification
 
@@ -38,3 +38,4 @@ Before publishing the release, verify:
 - Postgres batch enqueue still reports inserted and duplicate counts correctly after the multi-row insert optimization.
 - [BACKFILL.md](BACKFILL.md) clearly states that the caller owns source enumeration and checkpoints.
 - The v0.12.0 docs describe the external backfill playground boundary rather than implying bundled playground applications.
+- The external CRM playground demonstrates the backfill scenario before v0.12.0 is published.
