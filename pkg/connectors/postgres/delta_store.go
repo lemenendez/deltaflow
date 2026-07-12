@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lemenendez/deltaflow/pkg/connectors"
@@ -20,6 +22,11 @@ func NewDeltaStore(db *sql.DB, cfg connectors.DeltaStoreConfig) *DeltaStore {
 
 type queryRowContextExecutor interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type preparedDelta struct {
+	delta         deltaflow.Delta
+	key, metadata []byte
 }
 
 // Enqueue inserts a delta outside the caller's application transaction.
@@ -165,10 +172,6 @@ func (s *DeltaStore) EnqueueBatchTx(ctx context.Context, tx *sql.Tx, deltas []de
 		return result, nil
 	}
 
-	type preparedDelta struct {
-		delta         deltaflow.Delta
-		key, metadata []byte
-	}
 	prepared := make([]preparedDelta, len(deltas))
 	for i, delta := range deltas {
 		if delta.ID != "" {
@@ -180,34 +183,70 @@ func (s *DeltaStore) EnqueueBatchTx(ctx context.Context, tx *sql.Tx, deltas []de
 		}
 		prepared[i] = preparedDelta{normalized, key, metadata}
 	}
-	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO deltaflow.deltaflow_deltas
-(sync_id, origin, projection_type, projection_key, projection_key_hash, state, occurred_at, created_at, metadata, dedup_window, dedup_key)
-VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11)
-ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING`)
+	query, args := buildEnqueueBatchInsert(prepared)
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = stmt.Close() }()
+	defer rows.Close()
 
-	for _, item := range prepared {
-		res, execErr := stmt.ExecContext(ctx, item.delta.SyncID, item.delta.Origin,
-			item.delta.ProjectionType, item.key, item.delta.ProjectionKeyHash, item.delta.State,
-			item.delta.OccurredAt, item.delta.CreatedAt, item.metadata, item.delta.DedupWindow, item.delta.DedupKey)
-		if execErr != nil {
-			return nil, execErr
-		}
-		count, countErr := res.RowsAffected()
-		if countErr != nil {
-			return nil, countErr
-		}
-		if count == 1 {
-			result.InsertedCount++
-		} else {
-			result.DuplicateCount++
-		}
+	for rows.Next() {
+		result.InsertedCount++
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result.DuplicateCount = result.RequestedCount - result.InsertedCount
 	return result, nil
+}
+
+func buildEnqueueBatchInsert(prepared []preparedDelta) (string, []any) {
+	args := make([]any, 0, len(prepared)*11)
+	var query strings.Builder
+	query.WriteString(`
+INSERT INTO deltaflow.deltaflow_deltas
+	(sync_id, origin, projection_type, projection_key, projection_key_hash, state, occurred_at, created_at, metadata, dedup_window, dedup_key)
+VALUES `)
+
+	for i, item := range prepared {
+		if i > 0 {
+			query.WriteString(",")
+		}
+		base := i*11 + 1
+		query.WriteString(fmt.Sprintf("($%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d)",
+			base,
+			base+1,
+			base+2,
+			base+3,
+			base+4,
+			base+5,
+			base+6,
+			base+7,
+			base+8,
+			base+9,
+			base+10,
+		))
+		args = append(args,
+			item.delta.SyncID,
+			item.delta.Origin,
+			item.delta.ProjectionType,
+			item.key,
+			item.delta.ProjectionKeyHash,
+			item.delta.State,
+			item.delta.OccurredAt,
+			item.delta.CreatedAt,
+			item.metadata,
+			item.delta.DedupWindow,
+			item.delta.DedupKey,
+		)
+	}
+
+	query.WriteString(`
+ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL
+DO NOTHING
+RETURNING 1`)
+
+	return query.String(), args
 }
 
 func (s *DeltaStore) Get(ctx context.Context, deltaID deltaflow.DeltaID) (*deltaflow.Delta, bool, error) {

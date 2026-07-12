@@ -135,16 +135,17 @@
 - [x] Release notes draft: [RELEASE_NOTES_V0.11.2.md](RELEASE_NOTES_V0.11.2.md)
 
 ## v0.12.0 - Backfills
-- [ ] Document backfill as user-owned scan + EnqueueBatch
+- [x] Document backfill as user-owned scan + EnqueueBatch
+- [x] Publish dedicated backfill adoption guide: [BACKFILL.md](BACKFILL.md)
 - [ ] Enqueue deltas for an existing source universe
-- [ ] Provide NewBackfillDelta helper
-- [ ] Provide SQL seek-pagination example
-- [ ] Evaluate bulk inserts as an optional EnqueueBatch performance optimization
-- [ ] Provide high-watermark example
-- [ ] Provide caller-owned cursor recovery example
-- [ ] Support restart-safe backfills through application-provided stable ordering and optional checkpoint token
-- [ ] Support multiple workers for Postgres-backed backfills using existing lease/batch semantics
-- [ ] Keep SQLite backfills single-worker only
+- [x] Provide NewBackfillDelta helper
+- [x] Provide SQL seek-pagination example
+- [x] Evaluate bulk inserts as an optional EnqueueBatch performance optimization
+- [x] Provide high-watermark example
+- [x] Provide caller-owned cursor recovery example
+- [x] Support restart-safe backfills through application-provided stable ordering and optional checkpoint token
+- [x] Support multiple workers for Postgres-backed backfills using existing lease/batch semantics
+- [x] Keep SQLite backfills single-worker only
 - [ ] Support dry-run mode where practical
 - [ ] Provide Elasticsearch population example
 - [ ] Provide large-backfill guidance:
@@ -153,12 +154,12 @@
   - worker count
   - destination bulk APIs
   - retention/pruning
-- [ ] Document that DeltaFlow does not own source enumeration state unless the application provides a checkpoint strategy
+- [x] Document that DeltaFlow does not own source enumeration state unless the application provides a checkpoint strategy
 - [ ] Define compatibility of each timing mode with backfills
-- [ ] Add backfill playground: seed source records -> run backfill -> observe destination catch up
-- [ ] Include large-source playground scenario with fixed seed/count
-- [ ] Plan doc: [PLAN_v0.12.0.md](PLAN_v0.12.0.md)
-- [ ] Release notes draft: [RELEASE_NOTES_V0.12.0.md](RELEASE_NOTES_V0.12.0.md)
+- [ ] Define external backfill playground repository: seed source records -> run backfill -> observe destination catch up
+- [ ] Include large-source external playground scenario with fixed seed/count
+- [x] Plan doc: [PLAN_v0.12.0.md](PLAN_v0.12.0.md)
+- [x] Release notes draft: [RELEASE_NOTES_V0.12.0.md](RELEASE_NOTES_V0.12.0.md)
 
 ## v0.13.0 - Connector module split
 - [ ] Keep core module free of concrete connector client/driver dependencies

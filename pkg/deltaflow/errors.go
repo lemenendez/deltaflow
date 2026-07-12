@@ -3,6 +3,14 @@ package deltaflow
 import "errors"
 
 var (
+	// Returned by backfill helpers when callers omit the target sync identifier.
+	ErrSyncIDRequired = errors.New("sync id is required")
+	// Returned by backfill helpers when callers omit the source origin operation.
+	ErrOriginRequired = errors.New("origin operation is required")
+	// Returned by backfill helpers when callers omit the projection type.
+	ErrProjectionTypeRequired = errors.New("projection type is required")
+	// Returned by backfill helpers when callers omit the projection key.
+	ErrProjectionKeyRequired = errors.New("projection key is required")
 	// Returned by Projector implementations when a projection does not exist.
 	ErrProjectionNotFound = errors.New("projection not found")
 	// Returned by DeltaStore mutators when the referenced delta cannot be found.

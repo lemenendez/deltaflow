@@ -104,6 +104,43 @@ func TestDeltaMemoryStoreEnqueueReturnsExistingWindowDuplicate(t *testing.T) {
 	}
 }
 
+func TestDeltaMemoryStoreEnqueueBackfillHelperDelta(t *testing.T) {
+	store := NewDeltaMemoryStore()
+	identity := deltaflow.ProjectionIdentity{
+		Type: "Customer",
+		Key: deltaflow.ProjectionKey{
+			"id": json.RawMessage(`"1"`),
+		},
+	}
+
+	delta, err := deltaflow.NewBackfillDelta("sync", deltaflow.OriginOperationUpdated, identity, "customers-2026")
+	if err != nil {
+		t.Fatalf("NewBackfillDelta: %v", err)
+	}
+
+	batchResult, err := store.EnqueueBatch(context.Background(), []deltaflow.Delta{delta})
+	if err != nil {
+		t.Fatalf("EnqueueBatch helper delta: %v", err)
+	}
+	if batchResult.InsertedCount != 1 || batchResult.DuplicateCount != 0 {
+		t.Fatalf("batch result = %#v", batchResult)
+	}
+
+	inserted, err := store.Enqueue(context.Background(), deltaflow.Delta{
+		SyncID:         delta.SyncID,
+		Origin:         delta.Origin,
+		ProjectionType: delta.ProjectionType,
+		ProjectionKey:  deltaflow.ProjectionKey{"id": json.RawMessage(`"2"`)},
+		DedupWindow:    delta.DedupWindow,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue helper-shaped delta: %v", err)
+	}
+	if inserted.ID == "" || inserted.DedupKey == "" {
+		t.Fatalf("inserted helper-shaped delta = %#v", inserted)
+	}
+}
+
 func TestDeltaMemoryStoreEnqueueBatchGuardrails(t *testing.T) {
 	store := NewDeltaMemoryStore()
 	_, err := store.EnqueueBatch(context.Background(), []deltaflow.Delta{{}})
